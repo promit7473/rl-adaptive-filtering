@@ -1,0 +1,101 @@
+signal,noise,seed,method,ss_mse_db
+Speech,gaussian,7,NLMS,-11.080063966531036
+Speech,gaussian,7,NLMS (mu=0.1),-11.90085680052717
+Speech,gaussian,7,VSS-LMS (Kwong),-11.6774391051805
+Speech,gaussian,7,Heuristic,-10.619499613332026
+Speech,gaussian,7,Meta-RL,-10.652668124098943
+Speech,impulsive,7,NLMS,-11.324515065470734
+Speech,impulsive,7,NLMS (mu=0.1),-12.14904065313329
+Speech,impulsive,7,VSS-LMS (Kwong),-11.77800973626403
+Speech,impulsive,7,Heuristic,-12.21602926082096
+Speech,impulsive,7,Meta-RL,-9.710981909200607
+Speech,burst,7,NLMS,-31.852888945943096
+Speech,burst,7,NLMS (mu=0.1),-29.362048401318507
+Speech,burst,7,VSS-LMS (Kwong),-15.441265184182127
+Speech,burst,7,Heuristic,-32.0039591605338
+Speech,burst,7,Meta-RL,-18.02099008184218
+Speech,regime_switch,7,NLMS,-24.011116233222857
+Speech,regime_switch,7,NLMS (mu=0.1),-23.225997209762433
+Speech,regime_switch,7,VSS-LMS (Kwong),-14.783006764976554
+Speech,regime_switch,7,Heuristic,-23.568259686086996
+Speech,regime_switch,7,Meta-RL,-15.956904165212144
+Speech,gaussian,42,NLMS,-11.250657617981211
+Speech,gaussian,42,NLMS (mu=0.1),-12.119117711418175
+Speech,gaussian,42,VSS-LMS (Kwong),-11.8114775639272
+Speech,gaussian,42,Heuristic,-10.644988273811913
+Speech,gaussian,42,Meta-RL,-10.362460634413893
+Speech,impulsive,42,NLMS,-10.660453351668487
+Speech,impulsive,42,NLMS (mu=0.1),-11.390143962793829
+Speech,impulsive,42,VSS-LMS (Kwong),-11.188758121302255
+Speech,impulsive,42,Heuristic,-11.418989422247847
+Speech,impulsive,42,Meta-RL,-9.6753528047953
+Speech,burst,42,NLMS,-32.29050306018886
+Speech,burst,42,NLMS (mu=0.1),-29.63083418825378
+Speech,burst,42,VSS-LMS (Kwong),-15.257481190107367
+Speech,burst,42,Heuristic,-32.273635261306104
+Speech,burst,42,Meta-RL,-18.56766314137955
+Speech,regime_switch,42,NLMS,-24.247232549211276
+Speech,regime_switch,42,NLMS (mu=0.1),-22.92866112910463
+Speech,regime_switch,42,VSS-LMS (Kwong),-14.764113122382824
+Speech,regime_switch,42,Heuristic,-23.988346972805843
+Speech,regime_switch,42,Meta-RL,-16.327040552859174
+Speech,gaussian,99,NLMS,-11.49717606051764
+Speech,gaussian,99,NLMS (mu=0.1),-12.295919036067083
+Speech,gaussian,99,VSS-LMS (Kwong),-11.992960487394146
+Speech,gaussian,99,Heuristic,-10.927032929635407
+Speech,gaussian,99,Meta-RL,-10.227192429122615
+Speech,impulsive,99,NLMS,-10.82583743547277
+Speech,impulsive,99,NLMS (mu=0.1),-11.504871600218207
+Speech,impulsive,99,VSS-LMS (Kwong),-11.678932267349234
+Speech,impulsive,99,Heuristic,-11.162691960434605
+Speech,impulsive,99,Meta-RL,-9.774218498413225
+Speech,burst,99,NLMS,-31.490861611017948
+Speech,burst,99,NLMS (mu=0.1),-29.23373158203953
+Speech,burst,99,VSS-LMS (Kwong),-15.497334674398488
+Speech,burst,99,Heuristic,-31.459743036706133
+Speech,burst,99,Meta-RL,-17.843119025972705
+Speech,regime_switch,99,NLMS,-24.971584272015015
+Speech,regime_switch,99,NLMS (mu=0.1),-23.60180006739786
+Speech,regime_switch,99,VSS-LMS (Kwong),-15.617252435655358
+Speech,regime_switch,99,Heuristic,-24.634842420496227
+Speech,regime_switch,99,Meta-RL,-16.806655734589867
+Speech,gaussian,137,NLMS,-11.170886967961884
+Speech,gaussian,137,NLMS (mu=0.1),-11.933605153726266
+Speech,gaussian,137,VSS-LMS (Kwong),-11.415899724566774
+Speech,gaussian,137,Heuristic,-10.622301967816894
+Speech,gaussian,137,Meta-RL,-10.410744707637116
+Speech,impulsive,137,NLMS,-11.646911791607359
+Speech,impulsive,137,NLMS (mu=0.1),-12.712790040045958
+Speech,impulsive,137,VSS-LMS (Kwong),-11.81451726668316
+Speech,impulsive,137,Heuristic,-13.009368642966564
+Speech,impulsive,137,Meta-RL,-10.294707665992469
+Speech,burst,137,NLMS,-32.36749631289809
+Speech,burst,137,NLMS (mu=0.1),-29.596819061907816
+Speech,burst,137,VSS-LMS (Kwong),-15.54727591263009
+Speech,burst,137,Heuristic,-32.28890757301201
+Speech,burst,137,Meta-RL,-17.299013981291846
+Speech,regime_switch,137,NLMS,-25.002810590571375
+Speech,regime_switch,137,NLMS (mu=0.1),-24.094978879010974
+Speech,regime_switch,137,VSS-LMS (Kwong),-15.527294345562954
+Speech,regime_switch,137,Heuristic,-24.54061275147405
+Speech,regime_switch,137,Meta-RL,-17.1325240903473
+Speech,gaussian,256,NLMS,-11.594277517227026
+Speech,gaussian,256,NLMS (mu=0.1),-12.331964300781364
+Speech,gaussian,256,VSS-LMS (Kwong),-12.084588991458682
+Speech,gaussian,256,Heuristic,-11.15744119741925
+Speech,gaussian,256,Meta-RL,-10.758899024369303
+Speech,impulsive,256,NLMS,-10.995325895419354
+Speech,impulsive,256,NLMS (mu=0.1),-11.946467607379496
+Speech,impulsive,256,VSS-LMS (Kwong),-11.575876133724886
+Speech,impulsive,256,Heuristic,-11.977845774167175
+Speech,impulsive,256,Meta-RL,-9.929086838694131
+Speech,burst,256,NLMS,-32.611832292949536
+Speech,burst,256,NLMS (mu=0.1),-30.01741020399723
+Speech,burst,256,VSS-LMS (Kwong),-15.231954432075923
+Speech,burst,256,Heuristic,-32.45743510086622
+Speech,burst,256,Meta-RL,-18.251183671519705
+Speech,regime_switch,256,NLMS,-24.330629441808576
+Speech,regime_switch,256,NLMS (mu=0.1),-22.884787069353063
+Speech,regime_switch,256,VSS-LMS (Kwong),-14.652783330745702
+Speech,regime_switch,256,Heuristic,-24.11736296223844
+Speech,regime_switch,256,Meta-RL,-16.03401536954147

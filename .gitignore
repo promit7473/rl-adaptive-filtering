@@ -1,0 +1,45 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.env
+.ipynb_checkpoints/
+.pytest_cache/
+
+# Editors
+.vscode/
+.idea/
+.DS_Store
+.claude/
+
+# Paper sources (build locally with pdflatex)
+paper/
+
+# Bulky / stale run artefacts (regenerate via scripts/)
+results/runs/
+results/checkpoints/
+results/wandb/
+results/large_run/
+results/ppo/
+results/ppo_meta/
+results/ppo_meta_v3/
+results/ppo_meta_v4/
+results/ppo_mlp/
+results/ppo_mlp_v2/
+results/ppo_mlp_seeds/
+results/ppo_nlms_v3/
+results/ppo_nlms_v4/
+results/test_mlp/
+results/all/
+results/final/
+*.pt
+*.pth
+*.zip
+
+# Misc workspace
+logs/
+spl_papers/
+*.log
+texput.log
