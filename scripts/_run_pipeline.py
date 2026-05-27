@@ -469,10 +469,13 @@ def run_eval(hybrid_paths, bptt_paths, rl_paths):
 if __name__ == "__main__":
     log("=" * 60)
     log("v3.1 Production Pipeline Starting (resume-capable)")
-    log(f"GPU: {torch.cuda.get_device_name(0)}")
-    log(f"VRAM: {torch.cuda.get_device_properties(0).total_memory / 1e9:.1f} GB")
-    torch.cuda.empty_cache()
-    log("Cleared CUDA cache")
+    if torch.cuda.is_available():
+        log(f"GPU: {torch.cuda.get_device_name(0)}")
+        log(f"VRAM: {torch.cuda.get_device_properties(0).total_memory / 1e9:.1f} GB")
+        torch.cuda.empty_cache()
+        log("Cleared CUDA cache")
+    else:
+        log("Running on CPU (CUDA not available)")
     log("=" * 60)
 
     hybrid_paths = {}
