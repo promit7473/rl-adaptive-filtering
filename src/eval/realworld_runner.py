@@ -11,7 +11,7 @@ from dataclasses import dataclass
 
 FEAT_DIM = 7
 WINDOW   = 16
-MU_MIN, MU_MAX       = 0.01, 1.0
+MU_MIN, MU_MAX       = 0.005, 2.0
 LAM_MIN, LAM_MAX     = 0.80, 1.0
 FILTER_ORDER         = 16
 SOFTPLUS_REF         = np.log1p(np.exp(1.0))   # softplus(1)

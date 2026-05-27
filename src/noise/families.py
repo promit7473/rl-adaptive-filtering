@@ -41,7 +41,7 @@ def colored(clean: np.ndarray, snr_db: float, rng: np.random.Generator,
     n = clean.shape[0]
     white = rng.standard_normal(n)
     # frequency-domain shaping
-    freqs = np.fft.rfftfreq(n, d=1.0)
+    freqs = np.fft.rfftfreq(n, d=1.0).copy()
     freqs[0] = freqs[1] if len(freqs) > 1 else 1.0
     spectrum = np.fft.rfft(white) / (freqs ** (alpha / 2.0))
     out = np.fft.irfft(spectrum, n=n)
@@ -102,7 +102,9 @@ def burst(clean: np.ndarray, snr_db: float, rng: np.random.Generator,
     for _ in range(n_bursts):
         L = int(rng.integers(burst_len_range[0], burst_len_range[1]))
         start = int(rng.integers(0, max(1, n - L)))
-        out[start:start + L] += burst_gain * rng.standard_normal(L)
+        end = min(start + L, n)
+        actual_L = end - start
+        out[start:end] += burst_gain * rng.standard_normal(actual_L)
     return scale_to_snr(out, clean, snr_db)
 
 

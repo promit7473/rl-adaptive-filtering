@@ -4,12 +4,21 @@ from .lms import (
     LMP, HeuristicMuScheduler, KalmanMuScheduler,
 )
 from .rls import RLS
+from .notch import IIRNotch
+from .pid import PIDLeakyNLMS
+from .fixed_leakage_nlms import FixedLeakageNLMS
+from .meta_af import MetaAFFilter
+from .diff_filter import DifferentiableNLMS, DiffNLMSConfig
+from .diff_pnlms import DifferentiablePNLMS, DiffPNLMSConfig, PNLMSFilterWrapper, decode_action_pnlms
 
 __all__ = [
     "AdaptiveFilter", "windowize",
     "LMS", "NLMS", "VSSLMS", "AboulnasrMayyasVSS", "MathewsXieVSS",
     "LMP", "HeuristicMuScheduler", "KalmanMuScheduler",
-    "RLS", "make_filter",
+    "RLS", "IIRNotch", "PIDLeakyNLMS", "FixedLeakageNLMS", "MetaAFFilter",
+    "DifferentiableNLMS", "DiffNLMSConfig",
+    "DifferentiablePNLMS", "DiffPNLMSConfig", "PNLMSFilterWrapper", "decode_action_pnlms",
+    "make_filter",
 ]
 
 
@@ -33,4 +42,11 @@ def make_filter(name: str, order: int = 16, **kwargs):
         return KalmanMuScheduler(order=order, **kwargs)
     if name == "rls":
         return RLS(order=order, **kwargs)
+    if name in ("pid", "pid_nlms", "pid_leaky_nlms"):
+        return PIDLeakyNLMS(order=order, **kwargs)
+    if name in ("leaky_nlms", "fixed_leakage_nlms", "leaky"):
+        return FixedLeakageNLMS(order=order, **kwargs)
+    if name in ("notch", "iir_notch"):
+        # notch is single-input (no reference window); kwargs must include f0, fs
+        return IIRNotch(**kwargs)
     raise ValueError(f"Unknown filter: {name}")

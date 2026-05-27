@@ -1,12 +1,13 @@
 # RL Adaptive Filtering
 
-Code for **"Meta-Learned Step-Size and Leakage Control for Robust Adaptive Filtering"**
-Meraj Hossain Promit, Maria Akter Jitu, Chandak Chakma — *under submission to IEEE Signal Processing Letters; preprint on arXiv*.
+Code for **"Meta-Learned Step-Size and Leakage Control for Robust Adaptive
+Filtering"** — Meraj Hossain Promit, Maria Akter Jitu, Chandak Chakma
+(*under submission to IEEE Signal Processing Letters; engrXiv preprint*).
 
 A recurrent meta-policy (RL²) controls the step-size μₜ and leakage λₜ of a
 leaky-NLMS filter. Trained only on synthetic noise, it transfers zero-shot to
 MIT-BIH ECG records and gains **6.7 dB over NLMS on 50 Hz powerline
-interference** (paired Wilcoxon, N=25, p < 10⁻⁷).
+interference** (paired Wilcoxon, N = 25, p < 10⁻⁷).
 
 ## Setup
 
@@ -18,61 +19,98 @@ pip install -e .
 
 Tested on Python 3.10, PyTorch 2.3, stable-baselines3 2.3, sb3-contrib 2.3.
 
-## Layout
+## Repository layout
 
 ```
-configs/   YAML training/eval defaults
-src/
-  agents/      PPO + RecurrentPPO training
-  envs/        Gymnasium adaptive-filter env
-  filters/     LMS / NLMS / RLS / VSS baselines
-  noise/       5 noise families (gaussian, impulsive, burst, regime-switch, baseline-wander)
-  signals/     Synthetic clean signal generators
-  eval/        Metrics, paired-stats, plotting
-scripts/
-  train_rl.py            Train PPO-MLP and/or Meta-RL
-  run_baselines.py       Classical baselines
-  eval_all.py            Full method-vs-noise eval
-  eval_realworld.py      Zero-shot single-record ECG (record 100) + recovery
-  eval_ecg_multi.py      Zero-shot 5-record ECG (paper Table II)
-  make_paper_figures.py  Regenerate all PDFs from CSVs
-  smoke_test.py          Sanity-check the env + training loop
-results/   CSVs and trained policy zips (large run dirs are gitignored)
-tests/     pytest suite
+rl-adaptive-filtering/
+├── configs/
+│   └── default.yaml            # env + RL hyperparams (v2)
+├── scripts/
+│   ├── train.py                # RecurrentPPO / PPO-MLP, multi-seed
+│   ├── train_meta_af.py        # BPTT LSTM controller (Meta-AF reimpl baseline)
+│   ├── eval.py                 # All baselines + Meta-RL on synthetic & ECG
+│   ├── stats.py                # Wilcoxon + Holm-Bonferroni + Cohen's d
+│   ├── ablate.py               # Reward / curriculum / LSTM / mu_max sweep
+│   ├── figures.py              # Regenerate paper figures from CSVs
+│   └── smoke.py                # 30-second sanity test
+├── src/
+│   ├── envs/
+│   │   └── adaptive_filter_env.py   # Gymnasium env (mu, lambda actions)
+│   ├── filters/
+│   │   ├── base.py              # AdaptiveFilter ABC + windowize()
+│   │   ├── lms.py               # LMS, NLMS, VSS variants, LMP, schedulers
+│   │   ├── rls.py               # RLS
+│   │   ├── notch.py             # IIR notch (50 Hz powerline baseline)
+│   │   ├── pid.py               # PID-controlled mu (heuristic baseline)
+│   │   └── fixed_leakage_nlms.py
+│   ├── noise/families.py        # gaussian, colored, impulsive, time-varying,
+│   │                            # regime-switch (+ OOD: alpha-stable, burst,
+│   │                            # chirp interferer)
+│   ├── signals/generators.py    # sine, multitone, AM, chirp
+│   ├── agents/                  # legacy SB3 wrappers (kept for compat)
+│   ├── eval/                    # metrics, bootstrap stats, plotting helpers
+│   └── supervised/              # CNN denoiser (optional supervised baseline)
+├── tests/                       # pytest suite for env, filters, signals
+├── results/                     # CSVs + trained .zip policies (gitignored)
+├── pyproject.toml
+├── requirements.txt
+├── LICENSE                      # MIT
+└── README.md
 ```
 
-The `paper/` directory (LaTeX sources + figures) is gitignored.
+`paper/` (LaTeX sources + figures) is gitignored.
 
 ## Reproducing the paper
 
 ```bash
-# 1. Train (5 seeds; ~60 min PPO-MLP, ~120 min Meta-RL on a single GPU)
-python3 scripts/train_rl.py --policy mlp  --n-seeds 5
-python3 scripts/train_rl.py --policy meta --n-seeds 5
+# 0. Smoke test (~30 s)
+python3 scripts/smoke.py
 
-# 2. Synthetic eval (writes results/full_evaluation.csv)
-python3 scripts/eval_all.py --snr 0 5 10 15 20 \
-  --rl-models "Meta-RL=results/ppo_meta_v5/ppo_meta_seed442_final.zip"
+# 1. Train Meta-RL (5 seeds, ~6 h/seed on a single A100)
+PYTHONPATH=. python3 scripts/train.py --policy meta --n-seeds 5 \
+    --total-steps 1500000 --out-dir results/v2_meta
 
-# 3. Real ECG (MIT-BIH; auto-downloads via wfdb)
-python3 scripts/eval_realworld.py  --meta-model results/ppo_meta_v5/ppo_meta_seed442_final.zip
-python3 scripts/eval_ecg_multi.py            # 5 records × 5 seeds × 6 noises
+# 2. Train PPO-MLP baseline (5 seeds, ~3 h/seed)
+PYTHONPATH=. python3 scripts/train.py --policy mlp --n-seeds 5 \
+    --total-steps 800000 --out-dir results/v2_mlp
 
-# 4. Figures
-python3 scripts/make_paper_figures.py
+# 3. Train Meta-AF (BPTT) baseline for direct comparison (~2 h)
+PYTHONPATH=. python3 scripts/train_meta_af.py \
+    --out results/v2_meta_af/meta_af.pt --n-iters 4000
+
+# 4. Eval everything (synthetic + zero-shot MIT-BIH/QT-DB ECG with NSTDB noise)
+PYTHONPATH=. python3 scripts/eval.py --out-dir results/v2_eval \
+    --rl-models Meta-RL=results/v2_meta/ppo_meta_seed42_final.zip \
+                PPO-MLP=results/v2_mlp/ppo_mlp_seed42_final.zip \
+    --meta-af-path results/v2_meta_af/meta_af.pt
+
+# 5. Paired stats (Wilcoxon + Holm-Bonferroni + Cohen's d)
+PYTHONPATH=. python3 scripts/stats.py results/v2_eval/synthetic.csv \
+    --reference Meta-RL --out results/v2_eval/synthetic_stats.csv
+PYTHONPATH=. python3 scripts/stats.py results/v2_eval/ecg.csv \
+    --reference Meta-RL --out results/v2_eval/ecg_stats.csv
+
+# 6. Ablations (~3 h on GPU, 7 short training runs)
+PYTHONPATH=. python3 scripts/ablate.py --total-steps 300000
+
+# 7. Regenerate figures
+PYTHONPATH=. python3 scripts/figures.py --eval-dir results/v2_eval \
+    --fig-dir paper/figures
 ```
 
 ## Key design choices
 
 | Item        | Setting                                             |
 |-------------|-----------------------------------------------------|
+| Sampling    | 360 Hz native (matches MIT-BIH; no resample at eval)|
 | Filter      | Leaky-NLMS, order M = 16, ε = 10⁻⁸                  |
-| Actions     | log-scaled μ ∈ [0.01, 1.0], λ ∈ [0.8, 1.0]          |
-| State       | 7 features × 16-step window = 112-D, tanh-normalised |
-| Reward      | r = −softplus(e²) / softplus(1)                     |
-| PPO-MLP     | (128, 128) MLP, ~62k params, 600k steps             |
-| Meta-RL     | LSTM₁₂₈ → MLP, ~108k params, 1.2M steps             |
-| Eval metric | IQM over (seed × family), 95% bootstrap CI          |
+| Actions     | log-scaled μ ∈ [0.005, 2.0], λ ∈ [0.80, 1.0]        |
+| State       | 7 features × 16-step window = 112-D, tanh-scaled    |
+| Reward      | r = −log(1 + e²) (log-MSE; non-saturating)          |
+| Curriculum  | 50% transient noise (regime-switch / impulsive / TV)|
+| PPO-MLP     | (128, 128), ~62 k params, 0.8 M steps               |
+| Meta-RL     | LSTM₂₅₆ → (128, 128), ~310 k params, 1.5 M steps    |
+| Eval metric | IQM over (seed × family), 95 % bootstrap CI         |
 
 ## Tests
 
@@ -82,5 +120,5 @@ python3 -m pytest tests/ -v
 
 ## License
 
-MIT. If you use this code, please cite the arXiv preprint (citation will be
-added once the arXiv ID is assigned).
+MIT. If you use this code, please cite the engrXiv preprint
+(DOI added once issued) and the SPL paper if/when accepted.
