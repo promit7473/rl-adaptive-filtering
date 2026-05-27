@@ -272,11 +272,11 @@ def train_hybrid(cfg: HybridTrainConfig, out_dir: str = "results/v3_hybrid",
                 torch.tanh(dde * 5.0),
                 torch.tanh(torch.log1p(input_norm / cfg.filter_order + 1e-8)),
                 torch.tanh(torch.log1p(e_sq + 1e-8)),
-                autocorr,
+                torch.tanh(autocorr),
                 torch.tanh((last_mu - 0.5) * 4.0),
                 torch.tanh((last_lam - 0.85) * 10.0),
                 torch.tanh(grad_norm * 2.0),
-                sign_de.float(),
+                torch.tanh(sign_de.float()),
             ], dim=-1).unsqueeze(0)
 
             action, state, value, pred_err, pred_sig, pred_task, pred_snr = controller(feat_t, state)
