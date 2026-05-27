@@ -58,15 +58,15 @@ def _find_latest_ckpt(out_dir):
 def run_hybrid(seed):
     from src.agents.hybrid_trainer import train_hybrid, HybridTrainConfig
     cfg = HybridTrainConfig(
-        n_iters=2000,
+        n_iters=400,
         batch_size=16,
         episode_len=2000,
         trunc_bptt=64,
         device='cuda' if torch.cuda.is_available() else 'cpu',
         seed=seed,
-        save_every=500,
-        eval_every=200,
-        rl_phase_start=1000,
+        save_every=200,
+        eval_every=100,
+        rl_phase_start=200,
         rl_loss_weight=0.5,
         aux_signal_weight=0.3,
         aux_error_weight=0.2,
@@ -107,14 +107,14 @@ def run_hybrid(seed):
 def run_bptt(seed):
     from src.agents.hybrid_trainer import train_hybrid, HybridTrainConfig
     cfg = HybridTrainConfig(
-        n_iters=3000,
+        n_iters=400,
         batch_size=16,
         episode_len=2000,
         trunc_bptt=64,
         device='cuda' if torch.cuda.is_available() else 'cpu',
         seed=seed,
-        save_every=500,
-        eval_every=200,
+        save_every=200,
+        eval_every=100,
         rl_phase_start=999999,
         rl_loss_weight=0.0,
         aux_signal_weight=0.3,
@@ -231,7 +231,7 @@ def run_rl(seed):
         save_freq=200000, save_path=os.path.join(out, "checkpoints"),
         name_prefix=f"rl_seed{seed}")
 
-    model.learn(total_timesteps=2_000_000,
+    model.learn(total_timesteps=300_000,
                 callback=[cb_m, cb_ckpt], progress_bar=False)
 
     final_path = os.path.join(out, f"v31_rl_seed{seed}_final.zip")
@@ -479,8 +479,8 @@ if __name__ == "__main__":
     bptt_paths = {}
     rl_paths = {}
 
-    # Phase 1: Hybrid (5 seeds)
-    for seed in [42, 142, 242, 342, 442]:
+    # Phase 1: Hybrid (1 seed for fast validation)
+    for seed in [42]:
         try:
             p = run_hybrid(seed)
             hybrid_paths[f"Beast-Hybrid-s{seed}"] = p
@@ -489,8 +489,8 @@ if __name__ == "__main__":
             traceback.print_exc(file=open(LOG_FILE, "a"))
         torch.cuda.empty_cache()
 
-    # Phase 2: Pure BPTT (3 seeds)
-    for seed in [42, 142, 242]:
+    # Phase 2: Pure BPTT (1 seed for fast validation)
+    for seed in [42]:
         try:
             p = run_bptt(seed)
             bptt_paths[f"Beast-BPTT-s{seed}"] = p
@@ -499,8 +499,8 @@ if __name__ == "__main__":
             traceback.print_exc(file=open(LOG_FILE, "a"))
         torch.cuda.empty_cache()
 
-    # Phase 3: RL-only (3 seeds)
-    for seed in [42, 142, 242]:
+    # Phase 3: RL-only (1 seed for fast validation)
+    for seed in [42]:
         try:
             p = run_rl(seed)
             rl_paths[f"Beast-RL-s{seed}"] = p
