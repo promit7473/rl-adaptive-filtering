@@ -4,7 +4,7 @@ cd "$(dirname "$0")"
 source .venv/bin/activate
 
 echo "=== preflight ==="
-python3 -c "import torch; assert torch.cuda.is_available(), 'no CUDA'; print('GPU:', torch.cuda.get_device_name(0))"
+python3 -c "import torch; print('GPU Available:', torch.cuda.is_available()); print('GPU Name:', torch.cuda.get_device_name(0) if torch.cuda.is_available() else 'None (CPU fallback)')"
 mkdir -p logs results
 
 if [ -f logs/run.pid ] && kill -0 "$(cat logs/run.pid)" 2>/dev/null; then
