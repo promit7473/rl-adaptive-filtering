@@ -18,6 +18,10 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import torch
 import numpy as np
 
+# Performance optimizations for CPU RL rollouts
+torch.set_num_threads(1)
+torch.set_flush_denormal(True)
+
 RESULTS_DIR = "results/beast"
 LOG_FILE = os.path.join(RESULTS_DIR, "pipeline.log")
 
