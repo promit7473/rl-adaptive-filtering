@@ -43,7 +43,7 @@ def build_ablation_plot():
     fig, ax = plt.subplots(figsize=(3.45, 2.95))
 
     x = np.arange(len(families))
-    width = 0.16
+    width = 0.10
 
     for i, (cfg_name, color, hatch) in enumerate(zip(configs, colors, hatches)):
         means = values[:, i]
@@ -62,6 +62,7 @@ def build_ablation_plot():
 
     ax.set_xticks(x)
     ax.set_xticklabels(families, fontsize=8, fontweight="bold")
+    ax.set_xlim(-0.45, 1.45)
     ax.set_ylabel("Steady-state MSE (dB)", fontsize=8)
     ax.set_ylim(-36, 0)
     ax.axhline(0, color="black", lw=0.5)
