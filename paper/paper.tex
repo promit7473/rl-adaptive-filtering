@@ -446,18 +446,7 @@ biomedical $f_s\!\le\!1$\,kHz.
 
 \subsection{Synthetic benchmark}
 
-\begin{figure}[t]
-\centering
-\includegraphics[width=\columnwidth]{figures/fig_recovery.pdf}
-\caption{\textbf{Within-episode adaptation: burst noise.}
-  Burst begins at $t{=}167$\,ms and ends at $t{=}333$\,ms.
-  Meta-RL recovers below $-15$\,dB within $\sim 60$ samples
-  ($\approx 7.5$\,ms) after burst ends; no classical method
-  recovers within the episode. Bottom panel: $\mu_t$
-  automatically drops during the burst and rises during
-  quiet phases (emergent, not programmed).}
-\label{fig:recovery}
-\end{figure}
+
 
 Table~\ref{tab:final} shows steady-state MSE (SS MSE, last 25\% of episode)
 at SNR$=10$\,dB over 8 noise families.
@@ -520,6 +509,19 @@ Fig.~\ref{fig:recovery} illustrates within-episode recovery after a
 burst; Table~\ref{tab:final} reports the steady-state MSE profile across
 all eight noise families, including the held-out OOD families
 ($\alpha$-stable, burst, chirp) reached zero-shot without retraining.
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=\columnwidth]{figures/fig_recovery.pdf}
+\caption{\textbf{Within-episode adaptation: burst noise.}
+  Burst begins at $t{=}167$\,ms and ends at $t{=}333$\,ms.
+  Meta-RL recovers below $-15$\,dB within $\sim 60$ samples
+  ($\approx 7.5$\,ms) after burst ends; no classical method
+  recovers within the episode. Bottom panel: $\mu_t$
+  automatically drops during the burst and rises during
+  quiet phases (emergent, not programmed).}
+\label{fig:recovery}
+\end{figure}
 
 \subsection{Zero-shot ECG transfer}\label{sec:ecg}
 
