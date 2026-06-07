@@ -63,21 +63,25 @@ def build_ablation_plot():
     ax.set_xticks(x)
     ax.set_xticklabels(families, fontsize=8, fontweight="bold")
     ax.set_ylabel("Steady-state MSE (dB)", fontsize=8)
-    ax.set_ylim(-31, 0)
+    ax.set_ylim(-36, 0)
     ax.axhline(0, color="black", lw=0.5)
 
     # framed "panel" look + bold title (mirrors the zero-shot ECG figure)
     for s in ax.spines.values():
         s.set_visible(True)
     ax.set_title("Auxiliary-Head Ablation", fontweight="bold",
-                 fontsize=8.6, pad=28)
+                 fontsize=8.6, pad=16)
+    ax.text(0.5, 1.012, "signal-prediction head $\\hat{d}_{t+1}$ matters most",
+            transform=ax.transAxes, ha="center", va="bottom",
+            fontsize=6.8, style="italic", color="#333333")
     ax.grid(True, axis="y", color="#E2E2E2", lw=0.45, ls=(0, (3, 3)))
 
-    # legend in the clear band above the bars (bars start at 0 and hang down)
-    ax.legend(loc="lower center", bbox_to_anchor=(0.5, 1.0), ncol=2,
-              frameon=True, fontsize=6.0, columnspacing=0.9,
-              handletextpad=0.4, handlelength=1.2, borderpad=0.4, framealpha=0.96)
+    # legend inside the clear lower region (mirrors the zero-shot ECG figure)
+    ax.legend(loc="lower center", ncol=2, frameon=True, fontsize=5.8,
+              labelspacing=0.3, handletextpad=0.4, handlelength=1.1,
+              borderpad=0.35, framealpha=0.96)
 
+    ax.margins(y=0.02)
     fig.tight_layout(pad=0.3)
     
     # Save files
