@@ -145,10 +145,10 @@ def run_recovery_simulation():
         ax.axvspan(burst_lo, burst_hi, color="#ECECEC", zorder=0)
 
     # Top panel: denoising performance — baselines muted, "ours" bold on top
-    ax1.plot(t_axis, db_nlms, color=COL["NLMS"], lw=0.9, alpha=0.75, label="NLMS")
-    ax1.plot(t_axis, db_rls, color=COL["RLS"], lw=0.9, alpha=0.75, label="RLS")
-    ax1.plot(t_axis, db_vss, color=COL["VSS-LMS"], lw=0.9, alpha=0.75, label="VSS-LMS")
-    ax1.plot(t_axis, db_hyb, color=OURS, lw=2.1, label="Meta-RL (ours)", zorder=6)
+    ax1.plot(t_axis, db_nlms, color=COL["NLMS"], lw=0.7, alpha=0.75, label="NLMS")
+    ax1.plot(t_axis, db_rls, color=COL["RLS"], lw=0.7, alpha=0.75, label="RLS")
+    ax1.plot(t_axis, db_vss, color=COL["VSS-LMS"], lw=0.7, alpha=0.75, label="VSS-LMS")
+    ax1.plot(t_axis, db_hyb, color=OURS, lw=1.4, label="Meta-RL (ours)", zorder=6)
 
     ax1.set_ylabel("SS MSE (dB)", fontsize=8)
     ax1.set_ylim(-35, 15)
@@ -193,9 +193,9 @@ def run_recovery_simulation():
     padded_mu = np.pad(mu_hyb, (mu_win - 1, 0), mode='edge')
     smoothed_mu = np.convolve(padded_mu, np.ones(mu_win) / mu_win, mode='valid')
     ax2.fill_between(t_axis, 0, smoothed_mu, color=OURS, alpha=0.12, lw=0, zorder=1)
-    ax2.plot(t_axis, mu_hyb, color=OURS, alpha=0.22, lw=0.5, zorder=2,
+    ax2.plot(t_axis, mu_hyb, color=OURS, alpha=0.22, lw=0.3, zorder=2,
              label=r"raw $\mu_t$")
-    ax2.plot(t_axis, smoothed_mu, color=OURS, lw=1.9, zorder=3,
+    ax2.plot(t_axis, smoothed_mu, color=OURS, lw=1.3, zorder=3,
              label=r"smoothed $\mu_t$")
 
     ax2.set_ylabel(r"Step-size $\mu_t$", fontsize=8)
