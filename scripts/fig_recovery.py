@@ -20,6 +20,12 @@ from scripts.paper_plots import apply_style, _despine, OURS, COL
 def run_recovery_simulation():
     apply_style()
     
+    # Modern vibrant color palette override
+    C_META = "#D32F2F"
+    C_NLMS = "#2196F3"
+    C_VSS  = "#FF9800"
+    C_RLS  = "#9C27B0"  # Deep Purple
+    
     fs = 360.0
     N = 400
     order = 16
@@ -142,13 +148,22 @@ def run_recovery_simulation():
 
     # shaded burst window in both panels (drawn first, behind everything)
     for ax in (ax1, ax2):
-        ax.axvspan(burst_lo, burst_hi, color="#ECECEC", zorder=0)
+        ax.axvspan(burst_lo, burst_hi, color="#FFF9C4", alpha=0.4, zorder=0)
+        ax.axvline(burst_lo, color="#FBC02D", ls="--", lw=0.8, alpha=0.5, zorder=1)
+        ax.axvline(burst_hi, color="#FBC02D", ls="--", lw=0.8, alpha=0.5, zorder=1)
+        
+        # Despine (minimalist modern look)
+        ax.spines['top'].set_visible(False)
+        ax.spines['right'].set_visible(False)
 
     # Top panel: denoising performance — baselines muted, "ours" bold on top
-    ax1.plot(t_axis, db_nlms, color=COL["NLMS"], lw=0.7, alpha=0.75, label="NLMS")
-    ax1.plot(t_axis, db_rls, color=COL["RLS"], lw=0.7, alpha=0.75, label="RLS")
-    ax1.plot(t_axis, db_vss, color=COL["VSS-LMS"], lw=0.7, alpha=0.75, label="VSS-LMS")
-    ax1.plot(t_axis, db_hyb, color=OURS, lw=1.4, label="Meta-RL (ours)", zorder=6)
+    ax1.plot(t_axis, db_nlms, color=C_NLMS, lw=0.9, alpha=0.7, label="NLMS")
+    ax1.plot(t_axis, db_rls, color=C_RLS, lw=0.9, alpha=0.7, label="RLS")
+    ax1.plot(t_axis, db_vss, color=C_VSS, lw=0.9, alpha=0.7, label="VSS-LMS")
+    
+    # Modern Glow Effect for Meta-RL
+    ax1.plot(t_axis, db_hyb, color=C_META, lw=3.5, alpha=0.25, zorder=5) # glow
+    ax1.plot(t_axis, db_hyb, color=C_META, lw=1.5, label="Meta-RL (ours)", zorder=6)
 
     ax1.set_ylabel("SS MSE (dB)", fontsize=8)
     ax1.set_ylim(-35, 15)
@@ -159,9 +174,10 @@ def run_recovery_simulation():
     if exits.size:
         x_exit = t_axis[exits[0]]
         ax1.annotate("VSS-LMS\ndiverges", xy=(x_exit, 15),
-                     xytext=(x_exit + 70, 9.0), color=COL["VSS-LMS"],
+                     xytext=(x_exit + 70, 9.0), color=C_VSS,
                      fontsize=5.8, fontweight="bold", ha="left", va="center",
-                     arrowprops=dict(arrowstyle="-|>", color=COL["VSS-LMS"],
+                     bbox=dict(boxstyle="round,pad=0.3", fc="white", ec=C_VSS, lw=0.5, alpha=0.9),
+                     arrowprops=dict(arrowstyle="-|>", color=C_VSS,
                                      lw=0.9, shrinkA=1, shrinkB=1))
 
     # recovery marker — where "ours" drops back below -15 dB after the burst
@@ -170,14 +186,15 @@ def run_recovery_simulation():
     if below.size:
         x_rec = t_axis[below[0]]
         ax1.annotate(r"recovers $<\!-15$ dB", xy=(x_rec, db_hyb[below[0]]),
-                     xytext=(x_rec + 110, -2.5), color=OURS,
+                     xytext=(x_rec + 110, -2.5), color=C_META,
                      fontsize=5.8, fontweight="bold", ha="left", va="center",
-                     arrowprops=dict(arrowstyle="-|>", color=OURS,
+                     bbox=dict(boxstyle="round,pad=0.3", fc="white", ec=C_META, lw=0.5, alpha=0.9),
+                     arrowprops=dict(arrowstyle="-|>", color=C_META,
                                      lw=0.9, shrinkA=1, shrinkB=2))
 
     # BURST label at the top of the shaded band
     ax1.text(burst_mid, 0.95, "BURST", transform=ax1.get_xaxis_transform(),
-             ha="center", va="top", color="#6F6F6F", fontsize=6.2,
+             ha="center", va="top", color="#FBC02D", fontsize=6.5,
              fontweight="bold")
 
     ax1.set_title("Within-Episode Recovery: Burst Noise", fontweight="bold",
@@ -192,11 +209,12 @@ def run_recovery_simulation():
     mu_win = 10
     padded_mu = np.pad(mu_hyb, (mu_win - 1, 0), mode='edge')
     smoothed_mu = np.convolve(padded_mu, np.ones(mu_win) / mu_win, mode='valid')
-    ax2.fill_between(t_axis, 0, smoothed_mu, color=OURS, alpha=0.12, lw=0, zorder=1)
-    ax2.plot(t_axis, mu_hyb, color=OURS, alpha=0.22, lw=0.3, zorder=2,
+    ax2.fill_between(t_axis, 0, smoothed_mu, color=C_META, alpha=0.15, lw=0, zorder=1)
+    ax2.plot(t_axis, mu_hyb, color=C_META, alpha=0.25, lw=0.4, zorder=2,
              label=r"raw $\mu_t$")
-    ax2.plot(t_axis, smoothed_mu, color=OURS, lw=1.3, zorder=3,
+    ax2.plot(t_axis, smoothed_mu, color=C_META, lw=1.5, zorder=3,
              label=r"smoothed $\mu_t$")
+    ax2.axhline(0.5, color=C_NLMS, ls="--", lw=1.0, alpha=0.7, zorder=1, label=r"NLMS fixed $\mu$")
 
     ax2.set_ylabel(r"Step-size $\mu_t$", fontsize=8)
     ax2.set_xlabel("Time (ms)", fontsize=8)
