@@ -174,7 +174,7 @@ def run_recovery_simulation():
     if exits.size:
         x_exit = t_axis[exits[0]]
         ax1.annotate("VSS-LMS\ndiverges", xy=(x_exit, 15),
-                     xytext=(x_exit + 70, 9.0), color=C_VSS,
+                     xytext=(x_exit + 160, 9.0), color=C_VSS,
                      fontsize=5.8, fontweight="bold", ha="left", va="center",
                      bbox=dict(boxstyle="round,pad=0.3", fc="white", ec=C_VSS, lw=0.5, alpha=0.9),
                      arrowprops=dict(arrowstyle="-|>", color=C_VSS,
