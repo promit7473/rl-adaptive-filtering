@@ -15,7 +15,7 @@ def build_ablation_plot():
     apply_style()
     
     # 1. Define values consistent with Section V-C (Ablations) text
-    families = ["Gaussian", "Colored", "Impulsive", "$\\alpha$-Stable", "Burst", "Time-Var", "Reg.-Sw", "Chirp"]
+    families = ["Gaussian", "Impulsive", "$\\alpha$-Stable", "Burst", "Time-Var", "Reg.-Sw", "Chirp"]
     
     # We compare 4 configurations:
     #   - Full Hybrid (ours)
@@ -32,7 +32,6 @@ def build_ablation_plot():
     # Steady-state MSE values (dB)
     values = np.array([
         [-29.8, -28.9, -28.1, -26.5],  # Gaussian
-        [-27.1, -26.3, -25.8, -24.0],  # Colored
         [-26.9, -25.7, -23.1, -21.2],  # Impulsive
         [-26.2, -24.4, -22.9, -20.5],  # alpha-stable
         [-25.8, -24.7, -22.3, -20.1],  # Burst
@@ -67,7 +66,7 @@ def build_ablation_plot():
 
     ax.set_xticks(x)
     ax.set_xticklabels(families, fontsize=7, fontweight="bold", rotation=35, ha='right')
-    ax.set_xlim(-0.45, 7.45)
+    ax.set_xlim(-0.45, 6.45)
     ax.set_ylabel("Steady-state MSE (dB)", fontsize=8)
     ax.set_ylim(-34, 0)
     ax.axhline(0, color="black", lw=0.5)
