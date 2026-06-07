@@ -60,7 +60,7 @@ def build_ablation_plot():
             height = rect.get_height()
             ax.annotate(f"{height:.1f}",
                         xy=(rect.get_x() + rect.get_width() / 2, height),
-                        xytext=(0, -3), textcoords="offset points",
+                        xytext=(0, -6), textcoords="offset points",
                         ha='right', va='top', fontsize=4.5, fontweight="bold",
                         color="black", zorder=4, rotation=45)
 
