@@ -61,8 +61,8 @@ def build_ablation_plot():
             ax.annotate(f"{height:.1f}",
                         xy=(rect.get_x() + rect.get_width() / 2, height),
                         xytext=(0, -3), textcoords="offset points",
-                        ha='center', va='top', fontsize=4.5, fontweight="bold",
-                        color="black", zorder=4, rotation=90)
+                        ha='right', va='top', fontsize=4.5, fontweight="bold",
+                        color="black", zorder=4, rotation=45)
 
     ax.set_xticks(x)
     ax.set_xticklabels(families, fontsize=7, fontweight="bold", rotation=35, ha='right')
