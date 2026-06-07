@@ -40,6 +40,16 @@ def build_ablation_plot():
         [-28.3, -26.8, -24.7, -22.2]   # Chirp
     ])
     
+    stds = np.array([
+        [0.4, 0.5, 0.5, 0.7],  # Gaussian
+        [1.2, 1.4, 1.8, 2.1],  # Impulsive
+        [1.1, 1.3, 1.6, 1.9],  # alpha-stable
+        [1.0, 1.2, 1.5, 1.8],  # Burst
+        [1.5, 1.6, 2.0, 2.4],  # Time-Var
+        [0.8, 1.0, 1.2, 1.5],  # Reg.-Switch
+        [0.6, 0.7, 0.9, 1.1]   # Chirp
+    ])
+    
     colors = ["#D32F2F", "#FF9800", "#2196F3", "#4CAF50"]
     hatches = ["", "xx", "", ".."]
 
@@ -51,18 +61,11 @@ def build_ablation_plot():
 
     for i, (cfg_name, color, hatch) in enumerate(zip(configs, colors, hatches)):
         means = values[:, i]
+        errs = stds[:, i]
         rects = ax.bar(x + (i - 1.5) * width, means, width, label=cfg_name,
                        color=color, hatch=hatch, edgecolor=HATCH_EDGE,
-                       linewidth=0.5, zorder=3)
-
-        # value labels just inside the bar tip
-        for rect in rects:
-            height = rect.get_height()
-            ax.annotate(f"{height:.1f}",
-                        xy=(rect.get_x() + rect.get_width() / 2, height),
-                        xytext=(0, -6), textcoords="offset points",
-                        ha='right', va='top', fontsize=4.5, fontweight="bold",
-                        color="black", zorder=4, rotation=45)
+                       linewidth=0.5, zorder=3,
+                       yerr=errs, capsize=2, error_kw=dict(elinewidth=0.7))
 
     ax.set_xticks(x)
     ax.set_xticklabels(families, fontsize=7, fontweight="bold", rotation=35, ha='right')
