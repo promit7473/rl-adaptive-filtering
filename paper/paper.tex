@@ -510,7 +510,7 @@ burst; Table~\ref{tab:final} reports the steady-state MSE profile across
 all eight noise families, including the held-out OOD families
 ($\alpha$-stable, burst, chirp) reached zero-shot without retraining.
 
-\begin{figure}[t]
+\begin{figure}[!t]
 \centering
 \includegraphics[width=\columnwidth]{figures/fig_recovery.pdf}
 \caption{\textbf{Within-episode adaptation: burst noise.}
@@ -531,8 +531,6 @@ Database \cite{moody2001mitdb}). We use 5 records (MLII lead, $f_s{=}360$\,Hz)
 corrupted with 6 noise types at SNR$=10$\,dB, evaluated over 5 seeds.
 \textbf{None of these signal or noise types appeared during training.}
 
-
-
 The Meta-RL policy achieves $-32.7$\,dB mean SS MSE on ECG.
 The most striking result is on \textbf{powerline interference}:
 $-27.1$\,dB vs.\ NLMS $-20.4$\,dB, a
@@ -546,12 +544,10 @@ drives $(\mu_t,\lambda_t)$ to suppress it without any prior knowledge of
 
 \subsection{Ablations}\label{sec:ablations}
 
-\begin{figure*}[!t]
+\begin{figure}[!t]
 \centering
-\begin{minipage}[b]{0.48\textwidth}
-  \centering
-  \includegraphics[width=\linewidth]{figures/fig_realworld.pdf}
-  \caption{\textbf{Zero-shot transfer to real ECG} (RL$^2$ Meta-RL policy).
+\includegraphics[width=\columnwidth]{figures/fig_realworld.pdf}
+\caption{\textbf{Zero-shot transfer to real ECG} (RL$^2$ Meta-RL policy).
   Steady-state MSE across five MIT-BIH records (100, 101, 103, 105,
   115) under six corruption conditions at SNR$=10$\,dB; the policy is
   trained entirely on synthetic noise and deployed without retraining.
@@ -559,18 +555,17 @@ drives $(\mu_t,\lambda_t)$ to suppress it without any prior knowledge of
   average over $5{\times}5$ record-seed pairs---a tone never seen
   during training---while remaining competitive on the stationary
   Gaussian condition. Error bars: $\pm 1\sigma$.}
-  \label{fig:zeroshot}
-\end{minipage}
-\hfill
-\begin{minipage}[b]{0.48\textwidth}
-  \centering
-  \includegraphics[width=\linewidth]{figures/fig_ablation.pdf}
-  \caption{\textbf{Auxiliary prediction head ablation} across seven synthetic noise families.
+\label{fig:zeroshot}
+\end{figure}
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=\columnwidth]{figures/fig_ablation.pdf}
+\caption{\textbf{Auxiliary prediction head ablation} across seven synthetic noise families.
   Removing the signal prediction head $\hat{d}_{t+1}$ yields a substantial performance penalty (3--4\,dB loss),
   demonstrating that modeling clean signal dynamics explicitly is key to robust step-size adaptation.}
-  \label{fig:ablation}
-\end{minipage}
-\end{figure*}
+\label{fig:ablation}
+\end{figure}
 
 \textbf{Auxiliary heads.}
 Removing $\hat{d}_{t+1}$ (Fig.~\ref{fig:ablation}) costs 3--4\,dB on impulsive and $\alpha$-stable
