@@ -18,33 +18,32 @@ hatches = ["", "//", "xx", "..", ""]
 
 stats = d.groupby(["noise", "method"])["ss_mse_db"].agg(["mean", "std"]).reset_index()
 
-fig, ax = plt.subplots(figsize=(6.5, 3.4))
+fig, ax = plt.subplots(figsize=(3.45, 2.95))
 x = np.arange(len(order_noise))
-w = 0.16
+w = 0.14
 for i, (m, lbl, c, h) in enumerate(zip(methods, m_labels, colors, hatches)):
     means = [stats[(stats.noise == n) & (stats.method == m)]["mean"].values[0] for n in order_noise]
     stds = [stats[(stats.noise == n) & (stats.method == m)]["std"].values[0] for n in order_noise]
     offs = (i - 2) * w
     ax.bar(x + offs, means, w, yerr=stds, label=lbl, color=c, hatch=h,
-           edgecolor="black", linewidth=0.5, capsize=2,
+           edgecolor="black", linewidth=0.5, capsize=1.5,
            error_kw=dict(elinewidth=0.7))
 
 # annotate powerline win for Meta-RL
 pl_meta = stats[(stats.noise == "powerline") & (stats.method == "Meta-RL")]["mean"].values[0]
 pl_nlms = stats[(stats.noise == "powerline") & (stats.method == "NLMS")]["mean"].values[0]
 gap = pl_nlms - pl_meta
-ax.annotate(f"{gap:.1f} dB", xy=(4 + 2 * w, pl_meta), xytext=(4 + 2.4 * w, pl_meta + 5),
-            color="#C0392B", fontsize=8, fontweight="bold",
-            arrowprops=dict(arrowstyle="->", color="#C0392B", lw=0.8))
+ax.annotate(f"{gap:.1f} dB", xy=(4 + 2 * w, pl_meta), xytext=(4 + 1.2 * w, pl_meta + 6),
+            color="#C0392B", fontsize=7, fontweight="bold",
+            arrowprops=dict(arrowstyle="->", color="#C0392B", lw=0.7))
 
 ax.set_xticks(x)
-ax.set_xticklabels(label_noise, fontsize=8)
-ax.set_ylabel("Steady-state MSE (dB)")
-ax.set_title("Zero-shot transfer to ECG (MIT-BIH) \u2014 policy trained on synthetic only",
-             fontsize=9, fontweight="bold")
+ax.set_xticklabels(label_noise, fontsize=7, rotation=35, ha="right", fontweight="bold")
+ax.set_ylabel("Steady-state MSE (dB)", fontsize=8)
+ax.set_title("Zero-Shot ECG Transfer", fontsize=8.6, fontweight="bold", pad=12)
 ax.axhline(0, color="black", lw=0.5)
-ax.legend(loc="lower right", fontsize=7, ncol=3, frameon=True)
-ax.grid(axis="y", alpha=0.3)
+ax.legend(loc="lower left", fontsize=6, ncol=2, frameon=True)
+ax.grid(axis="y", color="#E2E2E2", lw=0.45, ls=(0, (3, 3)))
 plt.tight_layout()
 plt.savefig("paper/figures/fig_realworld.pdf", bbox_inches="tight")
 plt.savefig("paper/figures/fig_realworld.png", bbox_inches="tight", dpi=200)
