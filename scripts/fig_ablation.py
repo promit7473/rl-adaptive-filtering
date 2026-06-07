@@ -48,7 +48,7 @@ def build_ablation_plot():
     fig, ax = plt.subplots(figsize=(3.45, 2.95))
 
     x = np.arange(len(families))
-    width = 0.16
+    width = 0.20
 
     for i, (cfg_name, color, hatch) in enumerate(zip(configs, colors, hatches)):
         means = values[:, i]
@@ -61,7 +61,7 @@ def build_ablation_plot():
             height = rect.get_height()
             ax.annotate(f"{height:.1f}",
                         xy=(rect.get_x() + rect.get_width() / 2, height),
-                        xytext=(0, -4), textcoords="offset points",
+                        xytext=(0, -3), textcoords="offset points",
                         ha='center', va='top', fontsize=4.5, fontweight="bold",
                         color="black", zorder=4, rotation=90)
 
@@ -69,7 +69,7 @@ def build_ablation_plot():
     ax.set_xticklabels(families, fontsize=7, fontweight="bold", rotation=35, ha='right')
     ax.set_xlim(-0.45, 7.45)
     ax.set_ylabel("Steady-state MSE (dB)", fontsize=8)
-    ax.set_ylim(-45, 0)
+    ax.set_ylim(-34, 0)
     ax.axhline(0, color="black", lw=0.5)
 
     # framed "panel" look + bold title (mirrors the zero-shot ECG figure)
