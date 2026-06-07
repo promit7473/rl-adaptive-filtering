@@ -139,8 +139,8 @@ def run_recovery_simulation():
     t_axis = (np.arange(N) / fs) * 1000  # Time in milliseconds
     
     # ── PLOTTING (framed panels, muted baselines, emphasised "ours") ──────────
-    fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(3.45, 3.5), sharex=True,
-                                   gridspec_kw={'height_ratios': [1.85, 1.0]})
+    fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(3.45, 2.6), sharex=True,
+                                   gridspec_kw={'height_ratios': [1.6, 1.0]})
 
     burst_lo = (60 / fs) * 1000
     burst_hi = (120 / fs) * 1000

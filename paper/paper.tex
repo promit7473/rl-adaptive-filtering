@@ -59,8 +59,8 @@ diverge catastrophically under distribution shift.
 Supervised meta-learning (Meta-AF) back-propagates through a differentiable
 filter but requires the clean signal at every training step.
 We present meta-learned controllers for leaky-NLMS, trained
-\emph{entirely on synthetic noise} and requiring \emph{no clean
-reference} at training time.
+\emph{entirely on synthetic data} without requiring \emph{real target-domain
+clean references} during training.
 Our primary controller couples truncated back-propagation-through-time
 (BPTT) with the non-differentiable optimisation of PPO
 (\emph{hybrid BPTT+RL}): an 11-dimensional feature vector with a
@@ -100,11 +100,11 @@ per-sample cost \cite{haykin2014adaptive,widrow1985adaptive,sayed2003fundamental
 stationary \cite{nikias1995signal}: variable step-size (VSS) methods
 \cite{kwong1992variable,aboulnasr1997robust} adapt $\mu$ via
 hand-designed rules tuned per noise type, and we show empirically that
-VSS-LMS (Aboulnasr) reaches $+869$\,dB SS MSE on regime-switch noise.
+VSS-LMS (Aboulnasr) diverges catastrophically on regime-switch noise.
 Supervised meta-learning of filter updates (Meta-AF
 \cite{casebeer2022metaaf}) back-propagates through a differentiable
-filter but requires the clean signal $x[n]$ at every training step,
-limiting applicability to settings where clean references are unavailable.
+filter but requires real target-domain clean signals at every training step,
+limiting applicability when real clean references are unavailable.
 RL has been applied to communication hyperparameter control
 \cite{calabrese2018learning,mismar2019deep} but not, until recently,
 to online adaptive filtering.
@@ -117,7 +117,7 @@ The key insight is that BPTT provides
 strong gradient signal for learning \emph{what the filter should do}
 (step-size scheduling), while RL provides the flexibility to optimise
 \emph{non-differentiable objectives} (convergence speed, robustness)
-without requiring clean targets.
+using only synthetic rewards.
 
 \smallskip\noindent\textbf{Contributions.}
 (i) A hybrid BPTT+RL framework unifying Meta-AF-style \cite{casebeer2022metaaf}
@@ -193,7 +193,7 @@ to MIT-BIH ECG ($-32.7$\,dB mean SS MSE, $+6.7$\,dB over NLMS on $50$\,Hz).
 
   % Actor (below LSTM, same x, same width)
   \node[block]                       (action) at (7.5,  5.2)  {%
-      \textbf{Actor:} $\Delta\mu_t,\;\lambda_t$\\{\tiny base $\mu_0(T){+}\Delta\mu_t$}};
+      \textbf{Actor:} $\Delta\mu_t,\;\lambda_t$\\{\tiny base $\mu_0(t){+}\Delta\mu_t$}};
 
   % Auxiliary heads (right of LSTM, close-coupled so connecting arrows stay short)
   \node[smallblock]                  (herr)   at (10.4, 7.2)  {$\hat{e}_{t+1}$};
@@ -390,10 +390,9 @@ schedule when the environment is non-stationary.
 \begin{equation}\label{eq:reward}
   r_t = -\log(1 + e_t^2) + \beta\,\Delta\log\bar{e}^2 - \alpha\,\text{med}|\mathbf{e}_{-K}|
 \end{equation}
-where $\Delta\log\bar{e}^2$ is the improvement in running-average error
-(convergence shaping) and $\text{med}|\mathbf{e}_{-K}|$ is the median
-absolute error over the last $K{=}64$ steps (robust loss that is
-insensitive to impulsive outliers).
+where $\Delta\log\bar{e}^2$ is the log-improvement in running-average error,
+$\text{med}|\mathbf{e}_{-K}|$ is the median absolute error over the last $K{=}64$ steps,
+and hyperparameters are $\alpha{=}0.05, \beta{=}0.15$.
 
 % =====================================================================
 \section{Proposed Method}\label{sec:methods}
@@ -416,12 +415,10 @@ The BPTT loss combines MSE with three auxiliary losses:
   \label{eq:bptt_loss}
 \end{equation}
 where $\mathcal{L}_{\hat{e}}{=}\text{MSE}(\hat{e}_{t+1},\,e_t)$ forces
-the controller to predict the next error (world model of filter
-dynamics), $\mathcal{L}_{\hat{d}}{=}\text{MSE}(\hat{d}_{t+1},\,d_t)$
-forces prediction of the next clean sample (world model of signal
-dynamics---the key addition over Meta-AF \cite{casebeer2022metaaf}), and
+error prediction, $\mathcal{L}_{\hat{d}}{=}\text{MSE}(\hat{d}_{t+1},\,d_t)$
+forces clean signal prediction (the key addition over Meta-AF \cite{casebeer2022metaaf}), and
 $\mathcal{L}_{\hat{f}}{=}\text{CE}(\hat{f},\,f)$ classifies the noise
-family (task inference).
+family, with weights $\alpha_e{=}0.2, \alpha_d{=}0.3, \alpha_f{=}0.1$.
 
 \smallskip
 \noindent\textbf{Phase 2: PPO.}
@@ -470,7 +467,7 @@ all (seed, family) pairs.
 \begin{table*}[!t]
 \centering
 \caption{Steady-state MSE (dB) at SNR$=10$\,dB, mean over 3 seeds.
-         \textbf{Bold}: best unsupervised method per family;
+         \textbf{Bold}: best method per family;
          $\dagger$: requires clean signal at training time;
          ${\uparrow}$: at least one seed diverged.
          Lower is better.}
@@ -513,8 +510,7 @@ On Gaussian and stationary families (colored, burst, chirp), Meta-AF retains an
 edge---enabled by its untruncated BPTT gradient that flows through the entire filter
 history, yielding very low misadjustment. Our truncated BPTT ($\tau{=}64$) limits
 this horizon; our decaying base schedule partially compensates but cannot fully
-match Meta-AF asymptotically. Crucially, however, Meta-AF requires the clean
-reference during training, whereas our controller does not.
+match Meta-AF asymptotically. Crucially, however, Meta-AF requires target-domain clean references during training, whereas our controller is trained entirely on synthetic data and generalises zero-shot.
 Both RL methods generalise to all three held-out OOD families
 ($\alpha$-stable, burst, chirp) without retraining.
 Aboulnasr's VSS rule diverges on 14/40 (seed, family) runs; all
@@ -533,19 +529,7 @@ Database \cite{moody2001mitdb}). We use 5 records (MLII lead, $f_s{=}360$\,Hz)
 corrupted with 6 noise types at SNR$=10$\,dB, evaluated over 5 seeds.
 \textbf{None of these signal or noise types appeared during training.}
 
-\begin{figure}[!t]
-\centering
-\includegraphics[width=\columnwidth]{figures/fig_realworld.pdf}
-\caption{\textbf{Zero-shot transfer to real ECG} (RL$^2$ Meta-RL policy).
-  Steady-state MSE across five MIT-BIH records (100, 101, 103, 105,
-  115) under six corruption conditions at SNR$=10$\,dB; the policy is
-  trained entirely on synthetic noise and deployed without retraining.
-  It leads NLMS on $50$\,Hz powerline interference by $6.7$\,dB on
-  average over $5{\times}5$ record-seed pairs---a tone never seen
-  during training---while remaining competitive on the stationary
-  Gaussian condition. Error bars: $\pm 1\sigma$.}
-\label{fig:zeroshot}
-\end{figure}
+
 
 The Meta-RL policy achieves $-32.7$\,dB mean SS MSE on ECG.
 The most striking result is on \textbf{powerline interference}:
@@ -560,14 +544,31 @@ drives $(\mu_t,\lambda_t)$ to suppress it without any prior knowledge of
 
 \subsection{Ablations}\label{sec:ablations}
 
-\begin{figure}[t]
+\begin{figure*}[!t]
 \centering
-\includegraphics[width=\columnwidth]{figures/fig_ablation.pdf}
-\caption{\textbf{Auxiliary prediction head ablation} across seven synthetic noise families.
+\begin{minipage}[b]{0.48\textwidth}
+  \centering
+  \includegraphics[width=\linewidth]{figures/fig_realworld.pdf}
+  \caption{\textbf{Zero-shot transfer to real ECG} (RL$^2$ Meta-RL policy).
+  Steady-state MSE across five MIT-BIH records (100, 101, 103, 105,
+  115) under six corruption conditions at SNR$=10$\,dB; the policy is
+  trained entirely on synthetic noise and deployed without retraining.
+  It leads NLMS on $50$\,Hz powerline interference by $6.7$\,dB on
+  average over $5{\times}5$ record-seed pairs---a tone never seen
+  during training---while remaining competitive on the stationary
+  Gaussian condition. Error bars: $\pm 1\sigma$.}
+  \label{fig:zeroshot}
+\end{minipage}
+\hfill
+\begin{minipage}[b]{0.48\textwidth}
+  \centering
+  \includegraphics[width=\linewidth]{figures/fig_ablation.pdf}
+  \caption{\textbf{Auxiliary prediction head ablation} across seven synthetic noise families.
   Removing the signal prediction head $\hat{d}_{t+1}$ yields a substantial performance penalty (3--4\,dB loss),
   demonstrating that modeling clean signal dynamics explicitly is key to robust step-size adaptation.}
-\label{fig:ablation}
-\end{figure}
+  \label{fig:ablation}
+\end{minipage}
+\end{figure*}
 
 \textbf{Auxiliary heads.}
 Removing $\hat{d}_{t+1}$ (Fig.~\ref{fig:ablation}) costs 3--4\,dB on impulsive and $\alpha$-stable

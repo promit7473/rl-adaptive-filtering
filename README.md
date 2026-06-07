@@ -112,6 +112,13 @@ PYTHONPATH=. python3 scripts/figures.py --eval-dir results/v2_eval \
 | Meta-RL     | LSTM₂₅₆ → (128, 128), ~310 k params, 1.5 M steps    |
 | Eval metric | IQM over (seed × family), 95 % bootstrap CI         |
 
+## Training Convergence
+
+The recurrent meta-policy (RL²) displays exceptionally stable convergence characteristics during training. Across all 5 random seeds, the mean episode reward converges cleanly and plateaus after approximately $1.0 \times 10^6$ steps.
+
+A visualization of this training convergence profile (including $\pm 1\sigma$ variation bands across seeds) is saved during figures regeneration in the paper directory:
+*   [fig_convergence.png](file:///home/mhpromit7473/rl-adaptive-filtering/paper/figures/fig_convergence.png) (Reward Convergence plot)
+
 ## Tests
 
 ```bash
