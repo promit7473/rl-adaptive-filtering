@@ -41,7 +41,7 @@ def build_ablation_plot():
         [-28.3, -26.8, -24.7, -22.2]   # Chirp
     ])
     
-    colors = [OURS, COL["NLMS"], COL["NLMS_low"], COL["Heuristic"]]
+    colors = ["#E07A3D", "#4C9BD1", "#A6CFE8", "#7FBF7F"]
     hatches = ["", "..", "///", "\\\\"]
 
     # match the zero-shot ECG figure: same width/height, framed panel, title
@@ -61,15 +61,15 @@ def build_ablation_plot():
             height = rect.get_height()
             ax.annotate(f"{height:.1f}",
                         xy=(rect.get_x() + rect.get_width() / 2, height),
-                        xytext=(0, -8), textcoords="offset points",
-                        ha='center', va='bottom', fontsize=4.5, fontweight="bold",
+                        xytext=(0, -4), textcoords="offset points",
+                        ha='center', va='top', fontsize=4.5, fontweight="bold",
                         color="black", zorder=4, rotation=90)
 
     ax.set_xticks(x)
     ax.set_xticklabels(families, fontsize=7, fontweight="bold", rotation=35, ha='right')
     ax.set_xlim(-0.45, 7.45)
     ax.set_ylabel("Steady-state MSE (dB)", fontsize=8)
-    ax.set_ylim(-36, 0)
+    ax.set_ylim(-45, 0)
     ax.axhline(0, color="black", lw=0.5)
 
     # framed "panel" look + bold title (mirrors the zero-shot ECG figure)
