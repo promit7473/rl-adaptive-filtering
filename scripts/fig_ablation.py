@@ -48,7 +48,7 @@ def build_ablation_plot():
     fig, ax = plt.subplots(figsize=(3.45, 2.95))
 
     x = np.arange(len(families))
-    width = 0.04
+    width = 0.16
 
     for i, (cfg_name, color, hatch) in enumerate(zip(configs, colors, hatches)):
         means = values[:, i]
