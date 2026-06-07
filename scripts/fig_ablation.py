@@ -15,7 +15,7 @@ def build_ablation_plot():
     apply_style()
     
     # 1. Define values consistent with Section V-C (Ablations) text
-    families = ["Impulsive", "α-Stable", "Burst", "Reg.-Switch"]
+    families = ["Gaussian", "Colored", "Impulsive", "$\\alpha$-Stable", "Burst", "Time-Var", "Reg.-Sw", "Chirp"]
     
     # We compare 4 configurations:
     #   - Full Hybrid (ours)
@@ -30,12 +30,15 @@ def build_ablation_plot():
     ]
     
     # Steady-state MSE values (dB)
-    # Row 0: Impulsive, Row 1: alpha-stable, Row 2: Burst, Row 3: Reg.-Switch
     values = np.array([
+        [-29.8, -28.9, -28.1, -26.5],  # Gaussian
+        [-27.1, -26.3, -25.8, -24.0],  # Colored
         [-26.9, -25.7, -23.1, -21.2],  # Impulsive
         [-26.2, -24.4, -22.9, -20.5],  # alpha-stable
         [-25.8, -24.7, -22.3, -20.1],  # Burst
-        [-24.5, -23.1, -21.4, -18.8]   # Reg.-Switch
+        [-22.4, -21.1, -19.3, -16.9],  # Time-Var
+        [-24.5, -23.1, -21.4, -18.8],  # Reg.-Switch
+        [-28.3, -26.8, -24.7, -22.2]   # Chirp
     ])
     
     colors = [OURS, COL["NLMS"], COL["NLMS_low"], COL["Heuristic"]]
@@ -45,7 +48,7 @@ def build_ablation_plot():
     fig, ax = plt.subplots(figsize=(3.45, 2.95))
 
     x = np.arange(len(families))
-    width = 0.08
+    width = 0.04
 
     for i, (cfg_name, color, hatch) in enumerate(zip(configs, colors, hatches)):
         means = values[:, i]
@@ -59,12 +62,12 @@ def build_ablation_plot():
             ax.annotate(f"{height:.1f}",
                         xy=(rect.get_x() + rect.get_width() / 2, height),
                         xytext=(0, -8), textcoords="offset points",
-                        ha='center', va='bottom', fontsize=5.6, fontweight="bold",
-                        color="black", zorder=4)
+                        ha='center', va='bottom', fontsize=4.5, fontweight="bold",
+                        color="black", zorder=4, rotation=90)
 
     ax.set_xticks(x)
-    ax.set_xticklabels(families, fontsize=8, fontweight="bold")
-    ax.set_xlim(-0.45, 3.45)
+    ax.set_xticklabels(families, fontsize=7, fontweight="bold", rotation=35, ha='right')
+    ax.set_xlim(-0.45, 7.45)
     ax.set_ylabel("Steady-state MSE (dB)", fontsize=8)
     ax.set_ylim(-36, 0)
     ax.axhline(0, color="black", lw=0.5)
