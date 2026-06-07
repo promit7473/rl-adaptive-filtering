@@ -210,7 +210,7 @@ def run_recovery_simulation():
     padded_mu = np.pad(mu_hyb, (mu_win - 1, 0), mode='edge')
     smoothed_mu = np.convolve(padded_mu, np.ones(mu_win) / mu_win, mode='valid')
     ax2.fill_between(t_axis, 0, smoothed_mu, color=C_META, alpha=0.15, lw=0, zorder=1)
-    ax2.plot(t_axis, mu_hyb, color="#FF8A65", alpha=0.5, lw=0.4, zorder=2,
+    ax2.plot(t_axis, mu_hyb, color="#000000", alpha=0.35, lw=0.4, zorder=2,
              label=r"raw $\mu_t$")
     ax2.plot(t_axis, smoothed_mu, color=C_META, lw=1.5, zorder=3,
              label=r"smoothed $\mu_t$")
