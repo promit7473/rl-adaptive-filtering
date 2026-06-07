@@ -54,7 +54,7 @@ def build_ablation_plot():
     hatches = ["", "xx", "", ".."]
 
     # match the zero-shot ECG figure: same width/height, framed panel, title
-    fig, ax = plt.subplots(figsize=(3.45, 2.2))
+    fig, ax = plt.subplots(figsize=(3.45, 2.95))
 
     x = np.arange(len(families))
     width = 0.16
