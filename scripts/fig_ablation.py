@@ -40,7 +40,7 @@ def build_ablation_plot():
         [-28.3, -26.8, -24.7, -22.2]   # Chirp
     ])
     
-    colors = ["#E07A3D", "#F4B860", "#4C9BD1", "#7FBF7F"]
+    colors = ["#D32F2F", "#F57C00", "#1976D2", "#388E3C"]
     hatches = ["", "xx", "", ".."]
 
     # match the zero-shot ECG figure: same width/height, framed panel, title
