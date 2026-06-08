@@ -12,7 +12,7 @@ import torch
 
 def main():
     p = argparse.ArgumentParser()
-    p.add_argument("--out", default="results/v2_meta_af/meta_af.pt")
+    p.add_argument("--out", default="results/meta_af/meta_af.pt")
     p.add_argument("--n-iters", type=int, default=4000)
     p.add_argument("--batch-size", type=int, default=8)
     p.add_argument("--episode-len", type=int, default=2000)

@@ -1,13 +1,72 @@
-# RL Adaptive Filtering
+# Meta-Learned Step-Size and Leakage Control for Robust Adaptive Filtering
 
-Code for **"Meta-Learned Step-Size and Leakage Control for Robust Adaptive
-Filtering"** — Meraj Hossain Promit, Maria Akter Jitu, Chandak Chakma
-(*under submission to IEEE Signal Processing Letters; engrXiv preprint*).
+Code for the paper *"Meta-Learned Step-Size and Leakage Control for Robust
+Adaptive Filtering"* — Meraj Hossain Promit, Maria Akter Jitu, Chandak Chakma
+(under submission, IEEE Signal Processing Letters).
 
-A recurrent meta-policy (RL²) controls the step-size μₜ and leakage λₜ of a
-leaky-NLMS filter. Trained only on synthetic noise, it transfers zero-shot to
-MIT-BIH ECG records and gains **6.7 dB over NLMS on 50 Hz powerline
-interference** (paired Wilcoxon, N = 25, p < 10⁻⁷).
+We meta-learn a recurrent controller that drives the **step-size $\mu_t$** and
+**leakage $\lambda_t$** of a leaky-NLMS filter. It is trained **entirely on
+synthetic noise** (no clean target needed at deployment) and transfers
+**zero-shot** to real MIT-BIH ECG, gaining **+6.7 dB over NLMS on 50 Hz
+powerline interference** (paired Wilcoxon, N = 25, p < 10⁻⁷).
+
+---
+
+## What is ours vs. what is compared
+
+**Our method (this work)** — `src/agents/`
+| Name | What it is |
+|------|------------|
+| **Hybrid BPTT+RL (ours)** | The main controller. Truncated BPTT through a differentiable NLMS **+** PPO, with 3 auxiliary heads (error / signal / noise-class prediction). Trained label-free. |
+| **BPTT-only (ours)** | Ablation of the above — same controller trained with BPTT only (no PPO). |
+| **RL-only** | Ablation — RecurrentPPO controller, no BPTT, no auxiliary heads. |
+| **Meta-RL (RL²)** | The recurrent meta-policy used for the **zero-shot ECG** transfer. |
+
+**Baselines we compare against** — `src/filters/`
+- **Classical:** NLMS, RLS, VSS-LMS (Kwong / Aboulnasr / Mathews), PID-NLMS,
+  Fixed-Leaky NLMS, IIR-Notch, Heuristic μ-scheduler.
+- **Supervised:** **Meta-AF** (`src/filters/meta_af.py`) — back-propagates
+  through a differentiable filter but **requires the clean signal at training
+  time** (we do not).
+
+Noise families: train = {gaussian, colored, impulsive, time-varying,
+regime-switch}; held-out OOD = {α-stable, burst, chirp interferer}.
+
+---
+
+## Repository layout
+
+```
+rl-adaptive-filtering/
+├── src/
+│   ├── agents/
+│   │   ├── controller.py          # LSTM / Hybrid / Transformer controllers (OURS)
+│   │   └── hybrid_trainer.py      # Hybrid BPTT+RL training engine (OURS)
+│   ├── filters/
+│   │   ├── base.py                # AdaptiveFilter ABC + windowize()
+│   │   ├── lms.py                 # LMS, NLMS, VSS variants, LMP, schedulers
+│   │   ├── rls.py  notch.py  pid.py  fixed_leakage_nlms.py   # classical baselines
+│   │   ├── meta_af.py             # Meta-AF supervised baseline (compared)
+│   │   └── diff_filter.py         # differentiable leaky-NLMS for BPTT
+│   ├── envs/adaptive_filter_env_v2.py   # Gymnasium env (μ, λ actions)
+│   ├── signals/generators.py      # multitone, AM, sine, ECG-like, pulses, bursts
+│   ├── noise/families.py          # all 8 noise families
+│   └── eval/metrics.py            # steady-state MSE, convergence time
+├── scripts/
+│   ├── train_pipeline.py          # train Hybrid + BPTT-only + RL-only, then benchmark
+│   ├── train_meta_af.py           # train the supervised Meta-AF baseline
+│   ├── benchmark.py               # evaluate any set of methods (synthetic + ECG)
+│   ├── paper_plots.py             # shared figure style (single source)
+│   └── fig_recovery.py  fig_realworld.py  fig_ablation.py  fig_convergence.py
+├── tests/                         # pytest: env, filters, signals/noise
+├── results/                       # CSVs kept; results/runs/ and *.pt are gitignored
+├── pyproject.toml  requirements.txt  LICENSE  README.md
+```
+
+> `paper/` (LaTeX + figures) and large run artefacts (`results/runs/`, `*.pt`,
+> `*.zip`) are gitignored — regenerate them with the scripts below.
+
+---
 
 ## Setup
 
@@ -16,116 +75,66 @@ python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
 pip install -e .
 ```
+Python 3.10, PyTorch 2.x, stable-baselines3 + sb3-contrib. **A GPU is strongly
+recommended** — full training is ~6000 iterations and is impractical on CPU.
 
-Tested on Python 3.10, PyTorch 2.3, stable-baselines3 2.3, sb3-contrib 2.3.
+---
 
-## Repository layout
-
-```
-rl-adaptive-filtering/
-├── configs/
-│   └── default.yaml            # env + RL hyperparams (v2)
-├── scripts/
-│   ├── train.py                # RecurrentPPO / PPO-MLP, multi-seed
-│   ├── train_meta_af.py        # BPTT LSTM controller (Meta-AF reimpl baseline)
-│   ├── eval.py                 # All baselines + Meta-RL on synthetic & ECG
-│   ├── stats.py                # Wilcoxon + Holm-Bonferroni + Cohen's d
-│   ├── ablate.py               # Reward / curriculum / LSTM / mu_max sweep
-│   ├── figures.py              # Regenerate paper figures from CSVs
-│   └── smoke.py                # 30-second sanity test
-├── src/
-│   ├── envs/
-│   │   └── adaptive_filter_env.py   # Gymnasium env (mu, lambda actions)
-│   ├── filters/
-│   │   ├── base.py              # AdaptiveFilter ABC + windowize()
-│   │   ├── lms.py               # LMS, NLMS, VSS variants, LMP, schedulers
-│   │   ├── rls.py               # RLS
-│   │   ├── notch.py             # IIR notch (50 Hz powerline baseline)
-│   │   ├── pid.py               # PID-controlled mu (heuristic baseline)
-│   │   └── fixed_leakage_nlms.py
-│   ├── noise/families.py        # gaussian, colored, impulsive, time-varying,
-│   │                            # regime-switch (+ OOD: alpha-stable, burst,
-│   │                            # chirp interferer)
-│   ├── signals/generators.py    # sine, multitone, AM, chirp
-│   ├── agents/                  # legacy SB3 wrappers (kept for compat)
-│   ├── eval/                    # metrics, bootstrap stats, plotting helpers
-│   └── supervised/              # CNN denoiser (optional supervised baseline)
-├── tests/                       # pytest suite for env, filters, signals
-├── results/                     # CSVs + trained .zip policies (gitignored)
-├── pyproject.toml
-├── requirements.txt
-├── LICENSE                      # MIT
-└── README.md
-```
-
-`paper/` (LaTeX sources + figures) is gitignored.
-
-## Reproducing the paper
+## Reproduce
 
 ```bash
-# 0. Smoke test (~30 s)
-python3 scripts/smoke.py
+# 1. (compared) train the supervised Meta-AF baseline  -> results/meta_af/meta_af.pt
+PYTHONPATH=. python scripts/train_meta_af.py --n-iters 4000
 
-# 1. Train Meta-RL (5 seeds, ~6 h/seed on a single A100)
-PYTHONPATH=. python3 scripts/train.py --policy meta --n-seeds 5 \
-    --total-steps 1500000 --out-dir results/v2_meta
-
-# 2. Train PPO-MLP baseline (5 seeds, ~3 h/seed)
-PYTHONPATH=. python3 scripts/train.py --policy mlp --n-seeds 5 \
-    --total-steps 800000 --out-dir results/v2_mlp
-
-# 3. Train Meta-AF (BPTT) baseline for direct comparison (~2 h)
-PYTHONPATH=. python3 scripts/train_meta_af.py \
-    --out results/v2_meta_af/meta_af.pt --n-iters 4000
-
-# 4. Eval everything (synthetic + zero-shot MIT-BIH/QT-DB ECG with NSTDB noise)
-PYTHONPATH=. python3 scripts/eval.py --out-dir results/v2_eval \
-    --rl-models Meta-RL=results/v2_meta/ppo_meta_seed42_final.zip \
-                PPO-MLP=results/v2_mlp/ppo_mlp_seed42_final.zip \
-    --meta-af-path results/v2_meta_af/meta_af.pt
-
-# 5. Paired stats (Wilcoxon + Holm-Bonferroni + Cohen's d)
-PYTHONPATH=. python3 scripts/stats.py results/v2_eval/synthetic.csv \
-    --reference Meta-RL --out results/v2_eval/synthetic_stats.csv
-PYTHONPATH=. python3 scripts/stats.py results/v2_eval/ecg.csv \
-    --reference Meta-RL --out results/v2_eval/ecg_stats.csv
-
-# 6. Ablations (~3 h on GPU, 7 short training runs)
-PYTHONPATH=. python3 scripts/ablate.py --total-steps 300000
-
-# 7. Regenerate figures
-PYTHONPATH=. python3 scripts/figures.py --eval-dir results/v2_eval \
-    --fig-dir paper/figures
+# 2. train OUR controllers + the RL-only baseline, then benchmark them
+#    (writes results/runs/{hybrid,bptt,rl}_seed42 and results/runs/eval/{synthetic,summary}.csv)
+PYTHONPATH=. python scripts/train_pipeline.py
 ```
+Model size is set in `scripts/train_pipeline.py` (`lstm_hidden`, `n_lstm_layers`):
+the default is the 3-layer / 512 model; set `256` / `2` for the ~1M-param
+lightweight variant.
+
+```bash
+# 3. (optional) standalone benchmark, e.g. SNR=10 synthetic only
+PYTHONPATH=. python scripts/benchmark.py --snrs 10 --skip-ecg \
+    --hybrid-models "Hybrid (ours)=results/runs/hybrid_seed42/controller_final.pt" \
+                    "BPTT-only (ours)=results/runs/bptt_seed42/controller_final.pt" \
+    --rl-models "RL-only=results/runs/rl_seed42/rl_seed42_final.zip" \
+    --meta-af-path results/meta_af/meta_af.pt \
+    --out-dir results/benchmark
+
+# 4. paper figures (fig_recovery needs a trained checkpoint at results/runs/hybrid_seed42)
+PYTHONPATH=. python scripts/fig_realworld.py     # zero-shot ECG transfer
+PYTHONPATH=. python scripts/fig_ablation.py      # auxiliary-head ablation
+PYTHONPATH=. python scripts/fig_recovery.py      # within-episode burst recovery
+```
+
+> **Note:** model checkpoints (`*.pt`, `*.zip`) are gitignored, so after cloning
+> on a fresh machine you must retrain (step 1–2) before the benchmark/figures
+> have models to load.
+
+---
 
 ## Key design choices
 
-| Item        | Setting                                             |
-|-------------|-----------------------------------------------------|
-| Sampling    | 360 Hz native (matches MIT-BIH; no resample at eval)|
-| Filter      | Leaky-NLMS, order M = 16, ε = 10⁻⁸                  |
-| Actions     | log-scaled μ ∈ [0.005, 2.0], λ ∈ [0.80, 1.0]        |
-| State       | 7 features × 16-step window = 112-D, tanh-scaled    |
-| Reward      | r = −log(1 + e²) (log-MSE; non-saturating)          |
-| Curriculum  | 50% transient noise (regime-switch / impulsive / TV)|
-| PPO-MLP     | (128, 128), ~62 k params, 0.8 M steps               |
-| Meta-RL     | LSTM₂₅₆ → (128, 128), ~310 k params, 1.5 M steps    |
-| Eval metric | IQM over (seed × family), 95 % bootstrap CI         |
+| Item        | Setting |
+|-------------|---------|
+| Sampling    | 360 Hz native (matches MIT-BIH; no resample at eval) |
+| Filter      | Leaky-NLMS, order M = 16, ε = 10⁻⁸ |
+| Actions     | log-scaled μ ∈ [0.005, 2.0], λ ∈ [0.80, 1.0] |
+| State       | 11 features × 32-step window = 352-D, tanh-scaled |
+| Controller  | LSTM (512×3 default) + actor/critic + 3 auxiliary heads |
+| Training    | truncated BPTT (τ = 64) warmup → PPO (GAE-λ), RL² meta-episodes |
+| Eval metric | steady-state MSE (last 25% of episode), mean over seeds |
 
-## Training Convergence
-
-The recurrent meta-policy (RL²) displays exceptionally stable convergence characteristics during training. Across all 5 random seeds, the mean episode reward converges cleanly and plateaus after approximately $1.0 \times 10^6$ steps.
-
-A visualization of this training convergence profile (including $\pm 1\sigma$ variation bands across seeds) is saved during figures regeneration in the paper directory:
-*   [fig_convergence.png](file:///home/mhpromit7473/rl-adaptive-filtering/paper/figures/fig_convergence.png) (Reward Convergence plot)
+---
 
 ## Tests
 
 ```bash
-python3 -m pytest tests/ -v
+python -m pytest tests/ -v
 ```
 
 ## License
 
-MIT. If you use this code, please cite the engrXiv preprint
-(DOI added once issued) and the SPL paper if/when accepted.
+MIT — see `LICENSE`.

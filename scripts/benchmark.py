@@ -6,10 +6,10 @@ tables with Wilcoxon tests.
 
 Usage:
     PYTHONPATH=. python3 scripts/eval_v3.py \
-        --out-dir results/v3_eval \
+        --out-dir results/benchmark \
         --hybrid-models Hybrid-BPTT-RL=results/v3_hybrid/seed42/controller_final.pt \
         --rl-models Meta-RL-v3=results/v3_rl/v3_rl_seed42_final.zip \
-        --meta-af-path results/v2_meta_af/meta_af.pt
+        --meta-af-path results/meta_af/meta_af.pt
 """
 from __future__ import annotations
 import argparse
@@ -166,7 +166,7 @@ def eval_hybrid_models(args, model_paths: dict[str, str]) -> list[dict]:
                             obs_t = torch.tensor(obs_2d, dtype=torch.float32,
                                                  device=device).unsqueeze(0).unsqueeze(0)
                             with torch.no_grad():
-                                action, state, _, _, _, _ = controller(obs_t, state)
+                                action, state, *_ = controller(obs_t, state)
                             action_np = action[0, 0].cpu().numpy()
                             obs, _, term, trunc, _ = env.step(action_np)
                             errs.append(env.last_e)
@@ -449,7 +449,7 @@ def _save(rows, path):
 
 def main():
     p = argparse.ArgumentParser()
-    p.add_argument("--out-dir", default="results/v3_eval")
+    p.add_argument("--out-dir", default="results/benchmark")
     p.add_argument("--hybrid-models", nargs="*", default=[],
                    help="name=path.pt pairs for hybrid BPTT+RL models")
     p.add_argument("--rl-models", nargs="*", default=[],
@@ -473,7 +473,7 @@ def main():
                    default=["powerline", "gaussian", "impulsive", "burst"])
     p.add_argument("--ecg-snrs", type=float, nargs="+", default=[0, 5, 10])
     p.add_argument("--ecg-len", type=int, default=10800)
-    p.add_argument("--meta-af-path", default="results/v2_meta_af/meta_af.pt")
+    p.add_argument("--meta-af-path", default="results/meta_af/meta_af.pt")
     args = p.parse_args()
 
     os.makedirs(args.out_dir, exist_ok=True)

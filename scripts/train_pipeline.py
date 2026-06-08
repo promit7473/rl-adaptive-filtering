@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Full v3.1 production training pipeline.
+"""Production training + benchmarking pipeline.
 
 Runs all training phases sequentially:
   1. Hybrid BPTT+RL (the main model)
@@ -22,7 +22,7 @@ import numpy as np
 torch.set_num_threads(1)
 torch.set_flush_denormal(True)
 
-RESULTS_DIR = "results/beast"
+RESULTS_DIR = "results/runs"
 LOG_FILE = os.path.join(RESULTS_DIR, "pipeline.log")
 
 os.makedirs(RESULTS_DIR, exist_ok=True)
@@ -62,15 +62,16 @@ def _find_latest_ckpt(out_dir):
 def run_hybrid(seed):
     from src.agents.hybrid_trainer import train_hybrid, HybridTrainConfig
     cfg = HybridTrainConfig(
-        n_iters=400,
+        n_iters=6000,          # was 400 (stunted CPU validation run -> ~-14 dB);
+                               # full training needs ~6000 iters on GPU
         batch_size=16,
         episode_len=2000,
         trunc_bptt=64,
         device='cuda' if torch.cuda.is_available() else 'cpu',
         seed=seed,
-        save_every=200,
-        eval_every=100,
-        rl_phase_start=200,
+        save_every=500,
+        eval_every=200,
+        rl_phase_start=1000,   # was 200; give BPTT a proper warmup before PPO
         rl_loss_weight=0.5,
         aux_signal_weight=0.3,
         aux_error_weight=0.2,
@@ -111,14 +112,14 @@ def run_hybrid(seed):
 def run_bptt(seed):
     from src.agents.hybrid_trainer import train_hybrid, HybridTrainConfig
     cfg = HybridTrainConfig(
-        n_iters=400,
+        n_iters=6000,          # was 400 (stunted); pure-BPTT baseline, full run
         batch_size=16,
         episode_len=2000,
         trunc_bptt=64,
         device='cuda' if torch.cuda.is_available() else 'cpu',
         seed=seed,
-        save_every=200,
-        eval_every=100,
+        save_every=500,
+        eval_every=200,
         rl_phase_start=999999,
         rl_loss_weight=0.0,
         aux_signal_weight=0.3,
@@ -186,7 +187,7 @@ def run_rl(seed):
     out = os.path.join(RESULTS_DIR, f"rl_seed{seed}")
     os.makedirs(out, exist_ok=True)
 
-    final_path = os.path.join(out, f"v31_rl_seed{seed}_final.zip")
+    final_path = os.path.join(out, f"rl_seed{seed}_final.zip")
     if os.path.isfile(final_path):
         log(f"Skipping RL seed={seed} (already complete)")
         return final_path
@@ -238,9 +239,9 @@ def run_rl(seed):
     model.learn(total_timesteps=300_000,
                 callback=[cb_m, cb_ckpt], progress_bar=False)
 
-    final_path = os.path.join(out, f"v31_rl_seed{seed}_final.zip")
+    final_path = os.path.join(out, f"rl_seed{seed}_final.zip")
     model.save(final_path)
-    vec_path = os.path.join(out, f"v31_rl_seed{seed}_vecnormalize.pkl")
+    vec_path = os.path.join(out, f"rl_seed{seed}_vecnormalize.pkl")
     vec.save(vec_path)
 
     if cb_m.records:
@@ -472,7 +473,7 @@ def run_eval(hybrid_paths, bptt_paths, rl_paths):
 # ============================================================
 if __name__ == "__main__":
     log("=" * 60)
-    log("v3.1 Production Pipeline Starting (resume-capable)")
+    log("Training pipeline starting (resume-capable)")
     if torch.cuda.is_available():
         log(f"GPU: {torch.cuda.get_device_name(0)}")
         log(f"VRAM: {torch.cuda.get_device_properties(0).total_memory / 1e9:.1f} GB")
@@ -486,31 +487,31 @@ if __name__ == "__main__":
     bptt_paths = {}
     rl_paths = {}
 
-    # Phase 1: Hybrid (1 seed for fast validation)
+    # Phase 1: Hybrid BPTT+RL (our main controller)
     for seed in [42]:
         try:
             p = run_hybrid(seed)
-            hybrid_paths[f"Beast-Hybrid-s{seed}"] = p
+            hybrid_paths["Hybrid (ours)"] = p
         except Exception as e:
             log(f"ERROR hybrid seed={seed}: {e}")
             traceback.print_exc(file=open(LOG_FILE, "a"))
         torch.cuda.empty_cache()
 
-    # Phase 2: Pure BPTT (1 seed for fast validation)
+    # Phase 2: BPTT-only ablation (our controller, no PPO)
     for seed in [42]:
         try:
             p = run_bptt(seed)
-            bptt_paths[f"Beast-BPTT-s{seed}"] = p
+            bptt_paths["BPTT-only (ours)"] = p
         except Exception as e:
             log(f"ERROR BPTT seed={seed}: {e}")
             traceback.print_exc(file=open(LOG_FILE, "a"))
         torch.cuda.empty_cache()
 
-    # Phase 3: RL-only (1 seed for fast validation)
+    # Phase 3: RL-only baseline (RecurrentPPO, no BPTT)
     for seed in [42]:
         try:
             p = run_rl(seed)
-            rl_paths[f"Beast-RL-s{seed}"] = p
+            rl_paths["RL-only"] = p
         except Exception as e:
             log(f"ERROR RL seed={seed}: {e}")
             traceback.print_exc(file=open(LOG_FILE, "a"))

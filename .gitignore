@@ -8,37 +8,27 @@ venv/
 .ipynb_checkpoints/
 .pytest_cache/
 
-# Editors
+# Editors / OS
 .vscode/
 .idea/
 .DS_Store
 .claude/
 
-# Paper sources (build locally with pdflatex)
+# Paper build (build locally with pdflatex)
 paper/
 
-# Bulky / stale run artefacts (regenerate via scripts/)
+# Training / benchmark outputs (regenerate via scripts/)
 results/runs/
+results/benchmark/
 results/checkpoints/
 results/wandb/
-results/large_run/
-results/ppo/
-results/ppo_meta/
-results/ppo_meta_v3/
-results/ppo_meta_v4/
-results/ppo_mlp/
-results/ppo_mlp_v2/
-results/ppo_mlp_seeds/
-results/ppo_nlms_v3/
-results/ppo_nlms_v4/
-results/test_mlp/
-results/all/
-results/final/
+
+# Model checkpoints & archives (retrain via scripts/)
 *.pt
 *.pth
 *.zip
 
-# Misc workspace
+# Logs & reference material
 logs/
 spl_papers/
 *.log

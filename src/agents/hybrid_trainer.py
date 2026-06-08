@@ -1,4 +1,4 @@
-"""Hybrid BPTT+RL training engine — v3.1 with all fixes applied.
+"""Hybrid BPTT+RL training engine.
 
 Fixes over v3:
   1. Proper PPO with Gaussian policy, GAE(λ), correct importance ratio
@@ -201,13 +201,13 @@ def train_hybrid(cfg: HybridTrainConfig, out_dir: str = "results/v3_hybrid",
                 reader = _csv.DictReader(f)
                 for row in reader:
                     records.append({k: (float(v) if k != "iter" else int(v)) for k, v in row.items()})
-        print(f"[v3.1] Resumed from {resume_from} at iter {start_iter}")
+        print(f"[train] Resumed from {resume_from} at iter {start_iter}")
         for _ in range(start_iter):
             if scheduler is not None:
                 scheduler.step()
 
-    print(f"[v3.1] Training hybrid BPTT+RL on {device}")
-    print(f"[v3.1] Controller: {cfg.controller_type}, params: "
+    print(f"[train] Training hybrid BPTT+RL on {device}")
+    print(f"[train] Controller: {cfg.controller_type}, params: "
           f"{sum(p.numel() for p in controller.parameters()):,}")
 
     for it in range(start_iter, cfg.n_iters):
@@ -362,7 +362,7 @@ def train_hybrid(cfg: HybridTrainConfig, out_dir: str = "results/v3_hybrid",
         records.append(rec)
 
         if it % 50 == 0 or it == cfg.n_iters - 1:
-            print(f"[v3.1] it={it:5d}  ss_mse_db={ss_mse_db:+.2f}  "
+            print(f"[train] it={it:5d}  ss_mse_db={ss_mse_db:+.2f}  "
                   f"ep_mse_db={ep_mse_db:+.2f}  mu={mean_mu:.4f}  "
                   f"lam={mean_lam:.4f}  lr={rec['lr']:.2e}  "
                   f"time={dt:.1f}s")
@@ -386,7 +386,7 @@ def train_hybrid(cfg: HybridTrainConfig, out_dir: str = "results/v3_hybrid",
             w.writeheader()
             w.writerows(records)
 
-    print(f"[v3.1] Done. Final model: {final_path}")
+    print(f"[train] Done. Final model: {final_path}")
     return controller, records, final_path
 
 

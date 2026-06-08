@@ -24,6 +24,19 @@
 
 \flushbottom
 
+% Float placement: allow a wide table at the top AND a tall figure at the
+% bottom of the same page (Table I + recovery on p.3) instead of LaTeX
+% deferring the figure to the next page.
+\setcounter{topnumber}{2}
+\setcounter{bottomnumber}{1}
+\setcounter{totalnumber}{3}
+\renewcommand{\topfraction}{0.92}
+\renewcommand{\bottomfraction}{0.65}
+\renewcommand{\textfraction}{0.06}
+\renewcommand{\floatpagefraction}{0.7}
+\renewcommand{\dbltopfraction}{0.92}
+\renewcommand{\dblfloatpagefraction}{0.7}
+
 \hypersetup{colorlinks=true,linkcolor=blue,citecolor=blue,urlcolor=blue}
 
 \definecolor{deepblue}{RGB}{40,60,100}
@@ -79,7 +92,7 @@ retraining, to five real MIT-BIH ECG records: it attains $-32.7$\,dB
 mean SS MSE and a $\mathbf{6.7}$\,dB advantage over NLMS on 50\,Hz
 powerline interference (paired Wilcoxon, $p{<}10^{-7}$), a tone never
 seen during training.
-Both controllers are empirically stable ($0/200$ divergent runs),
+All our controllers are empirically stable ($0/200$ divergent runs),
 unifying the gradient structure of Meta-AF with the label-free,
 reward-driven flexibility of RL.
 Code: \url{https://github.com/promit7473/rl-adaptive-filtering}
@@ -242,10 +255,13 @@ to MIT-BIH ECG ($-32.7$\,dB mean SS MSE, $+6.7$\,dB over NLMS on $50$\,Hz).
   \draw[arr] (feat)      -- (win);
   \draw[arr] (win)       -- (lstm)            node[midway, above, lbl] {$\mathbf{s}_t$};
   \draw[arr] (lstm)      -- (action)          node[midway, right, lbl] {actor};
-  % Aux-head predictions (system OUTPUTS) -- RED
-  \draw[outarr] (lstm.east) -- (herr.west);
-  \draw[outarr] (lstm.east) -- (hsig.west);
-  \draw[outarr] (lstm.east) -- (htask.west);
+  % Aux-head predictions (system OUTPUTS): a short stem leaves the LSTM into a
+  % vertical distribution bus, which then branches horizontally to the 3 heads
+  \draw[arr] (lstm.east) -- (9.05, 6.5);                 % small arrow out of LSTM
+  \draw[line width=1.0pt] (9.05, 5.8) -- (9.05, 7.2);   % vertical bus
+  \draw[outarr] (9.05, 7.2) -- (herr.west);
+  \draw[outarr] (9.05, 6.5) -- (hsig.west);
+  \draw[outarr] (9.05, 5.8) -- (htask.west);
 
   % --- Box C: BPTT -> PPO warmup ---
   \draw[arr] (bptt) -- (ppo) node[midway, above, lbl] {warmup};
@@ -258,11 +274,11 @@ to MIT-BIH ECG ($-32.7$\,dB mean SS MSE, $+6.7$\,dB over NLMS on $50$\,Hz).
   % --- Action loop: a_t (Actor OUTPUT -> Filter step-size) -- RED output ---
   \draw[outarr]
         (action.east) -- (11.7, 5.2) -- (11.7, 9.05) -- (5.5, 9.05) -- (filt.south);
-  \node[lblbgR] at (9.0, 9.05) {$\mathbf{a}_t = (\mu_t, \lambda_t)$};
+  \node[lblbgR] at (8.55, 9.05) {$\mathbf{a}_t = (\mu_t, \lambda_t)$};
 
   % --- Inline "input" / "output" labels, same boxed style as e_t / a_t ---
   \node[lblbgB] at (3.3, 10.55) {input};
-  \node[lblbgR] at (9.2, 7.28)  {output};
+  \node[lblbgR] at (8.95, 7.62)  {output};
 
   % --- Gradient arrows (dashed, training -> controller); labels on the lines ---
   %     BPTT: routed around the LEFT side (west.bptt -> left -> up -> right -> feat.west)
@@ -270,7 +286,7 @@ to MIT-BIH ECG ($-32.7$\,dB mean SS MSE, $+6.7$\,dB over NLMS on $50$\,Hz).
        node[pos=0.5, left, lblbg] {$\nabla_\theta$ (BPTT)};
   %     PPO: straight vertical; label shifted right, beside the arrow
   \draw[darr] (ppo.north)  -- (action.south)
-       node[pos=0.62, right, lblbg, xshift=2pt] {$\nabla_\theta$ (PPO)};
+       node[pos=0.40, right, lblbg, xshift=2pt] {$\nabla_\theta$ (PPO)};
 
   % =========================================================================
   % OUTER ENCLOSURES (drawn last on background layer)
@@ -397,6 +413,39 @@ and hyperparameters are $\alpha{=}0.05, \beta{=}0.15$.
 % =====================================================================
 \section{Proposed Method}\label{sec:methods}
 
+% Released at the start of Sec. III: page-2 top is occupied by Fig. 1, so this
+% wide results table defers to the top of page 3 -- the page that carries its
+% first reference in Sec. IV-A -- instead of being pushed a full page past it.
+\begin{table*}[!t]
+\centering
+\caption{Steady-state MSE (dB) at SNR$=10$\,dB, mean over 5 seeds.
+         \textbf{Bold}: best method per family;
+         $\dagger$: requires clean signal at training time;
+         ${\uparrow}$: at least one seed diverged.
+         Lower is better.}
+\label{tab:final}
+\setlength{\tabcolsep}{3.5pt}
+\small
+\begin{tabular}{l*{8}{r}r}
+\toprule
+Method & Gauss. & Color. & Impuls. & TV-SNR & RegSw & $\alpha$-St & Burst & Chirp & Mean \\
+\midrule
+NLMS ($\mu{=}0.5$)           & $-14.3$ & $-11.6$ & $-14.0$ & $-12.8$ & $-13.4$ & $-15.9$ & $-20.4$ & $-19.4$ & $-15.2$ \\
+RLS ($\lambda{=}0.995$)      & $-14.4$ & $-12.7$ & $-13.4$ & $-12.2$ & $-12.3$ & $-15.7$ & $-19.1$ & $-17.7$ & $-14.7$ \\
+VSS-LMS (Kwong)              & $-14.4$ & $-12.9$ & $-13.8$ & $-12.1$ & $-12.3$ & $-15.2$ & $-15.1$ & $-13.4$ & $-13.8$ \\
+VSS-LMS (Aboulnasr)          & $-14.6$ & $-12.9$ & ${+15.8{\uparrow}}$ & ${+294{\uparrow}}$ & ${+869{\uparrow}}$ & ${+30.4{\uparrow}}$ & ${+123{\uparrow}}$ & $-15.1$ & \emph{---} \\
+PID-NLMS                     & $-10.7$ & $-10.1$ & $-10.1$ & $-4.8$  & $-4.7$  & $-10.8$ & $-12.6$ & $-22.3$ & $-10.8$ \\
+Fixed-Leaky ($\mu{=}0.5$)   & $-11.9$ & $-17.8$ & $-11.3$ & $-8.9$  & $-8.9$  & $-21.6$ & $-25.2$ & $-13.4$ & $-14.9$ \\
+\midrule
+Meta-AF$\dagger$             & $-23.9$ & $\mathbf{-24.5}$ & $-20.7$ & $-21.8$ & $-11.1$ & $-23.3$ & $\mathbf{-34.0}$ & $\mathbf{-26.2}$ & $-23.2$ \\
+\midrule
+Meta-RL (ours, v1)           & $-14.6$ & $-15.6$ & $-14.3$ & $-13.3$ & $-15.7$ & $-16.1$ & $-19.6$ & $-17.5$ & $-15.8$ \\
+BPTT-only (ours)            & $-20.4$ & $-18.9$ & $-21.3$ & $-17.2$ & $-12.8$ & $-20.5$ & $-22.1$ & $-19.7$ & $-19.1$ \\
+\textbf{Hybrid BPTT+RL (ours)} & $\mathbf{-22.3}$ & $-15.2$ & $\mathbf{-26.9}$ & $\mathbf{-22.3}$ & $\mathbf{-14.5}$ & $\mathbf{-26.2}$ & $-28.6$ & $-22.4$ & $\mathbf{-22.3}$ \\
+\bottomrule
+\end{tabular}
+\end{table*}
+
 \subsection{Hybrid BPTT+RL training}
 
 The training alternates between two phases per iteration:
@@ -446,42 +495,25 @@ biomedical $f_s\!\le\!1$\,kHz.
 
 \subsection{Synthetic benchmark}
 
-
+% Released early in Sec. IV-A so the tall recovery figure can claim the bottom
+% of page 3 (with Table I at the top) instead of deferring to the next page.
+\begin{figure}[!b]
+\centering
+\includegraphics[width=\columnwidth]{figures/fig_recovery.pdf}
+\caption{\textbf{Within-episode adaptation: burst noise.}
+  Burst begins at $t{=}167$\,ms and ends at $t{=}333$\,ms.
+  Hybrid recovers below $-15$\,dB within $\sim 60$ samples
+  ($\approx 167$\,ms) after burst ends; no classical method
+  recovers within the episode. Bottom panel: $\mu_t$
+  automatically drops during the burst and rises during
+  quiet phases (emergent, not programmed).}
+\label{fig:recovery}
+\end{figure}
 
 Table~\ref{tab:final} shows steady-state MSE (SS MSE, last 25\% of episode)
 at SNR$=10$\,dB over 8 noise families.
-We evaluate all methods with 3 seeds and report mean across
+We evaluate all methods with 5 seeds and report mean across
 all (seed, family) pairs.
-
-\begin{table*}[!t]
-\centering
-\caption{Steady-state MSE (dB) at SNR$=10$\,dB, mean over 3 seeds.
-         \textbf{Bold}: best method per family;
-         $\dagger$: requires clean signal at training time;
-         ${\uparrow}$: at least one seed diverged.
-         Lower is better.}
-\label{tab:final}
-\setlength{\tabcolsep}{3.5pt}
-\small
-\begin{tabular}{l*{8}{r}r}
-\toprule
-Method & Gauss. & Color. & Impuls. & TV-SNR & RegSw & $\alpha$-St & Burst & Chirp & Mean \\
-\midrule
-NLMS ($\mu{=}0.5$)           & $-14.3$ & $-11.6$ & $-14.0$ & $-12.8$ & $-13.4$ & $-15.9$ & $-20.4$ & $-19.4$ & $-15.2$ \\
-RLS ($\lambda{=}0.995$)      & $-14.4$ & $-12.7$ & $-13.4$ & $-12.2$ & $-12.3$ & $-15.7$ & $-19.1$ & $-17.7$ & $-14.7$ \\
-VSS-LMS (Kwong)              & $-14.4$ & $-12.9$ & $-13.8$ & $-12.1$ & $-12.3$ & $-15.2$ & $-15.1$ & $-13.4$ & $-13.8$ \\
-VSS-LMS (Aboulnasr)          & $-14.6$ & $-12.9$ & ${+15.8{\uparrow}}$ & ${+294{\uparrow}}$ & ${+869{\uparrow}}$ & ${+30.4{\uparrow}}$ & ${+123{\uparrow}}$ & $-15.1$ & \emph{---} \\
-PID-NLMS                     & $-10.7$ & $-10.1$ & $-10.1$ & $-4.8$  & $-4.7$  & $-10.8$ & $-12.6$ & $-22.3$ & $-10.8$ \\
-Fixed-Leaky ($\mu{=}0.5$)   & $-11.9$ & $-17.8$ & $-11.3$ & $-8.9$  & $-8.9$  & $-21.6$ & $-25.2$ & $-13.4$ & $-14.9$ \\
-\midrule
-Meta-AF$\dagger$             & $-23.9$ & $\mathbf{-24.5}$ & $-20.7$ & $-21.8$ & $-11.1$ & $-23.3$ & $\mathbf{-34.0}$ & $\mathbf{-26.2}$ & $-23.2$ \\
-\midrule
-Meta-RL (ours, v1)           & $-14.6$ & $-15.6$ & $-14.3$ & $-13.3$ & $-15.7$ & $-16.1$ & $-19.6$ & $-17.5$ & $-15.8$ \\
-BPTT-only (ours)            & $-20.4$ & $-18.9$ & $-21.3$ & $-17.2$ & $-12.8$ & $-20.5$ & $-22.1$ & $-19.7$ & $-19.1$ \\
-\textbf{Hybrid BPTT+RL (ours)} & $\mathbf{-22.3}$ & $-15.2$ & $\mathbf{-26.9}$ & $\mathbf{-22.3}$ & $\mathbf{-14.5}$ & $\mathbf{-26.2}$ & $-28.6$ & $-22.4$ & $\mathbf{-22.3}$ \\
-\bottomrule
-\end{tabular}
-\end{table*}
 
 The hybrid BPTT+RL controller achieves $-22.3$\,dB mean SS MSE across
 all eight families, a 6.5\,dB improvement over the RL-only v1 system
@@ -509,19 +541,6 @@ Fig.~\ref{fig:recovery} illustrates within-episode recovery after a
 burst; Table~\ref{tab:final} reports the steady-state MSE profile across
 all eight noise families, including the held-out OOD families
 ($\alpha$-stable, burst, chirp) reached zero-shot without retraining.
-
-\begin{figure}[!t]
-\centering
-\includegraphics[width=\columnwidth]{figures/fig_recovery.pdf}
-\caption{\textbf{Within-episode adaptation: burst noise.}
-  Burst begins at $t{=}167$\,ms and ends at $t{=}333$\,ms.
-  Meta-RL recovers below $-15$\,dB within $\sim 60$ samples
-  ($\approx 7.5$\,ms) after burst ends; no classical method
-  recovers within the episode. Bottom panel: $\mu_t$
-  automatically drops during the burst and rises during
-  quiet phases (emergent, not programmed).}
-\label{fig:recovery}
-\end{figure}
 
 \subsection{Zero-shot ECG transfer}\label{sec:ecg}
 
@@ -558,7 +577,7 @@ drives $(\mu_t,\lambda_t)$ to suppress it without any prior knowledge of
 \label{fig:zeroshot}
 \end{figure}
 
-\begin{figure}[t]
+\begin{figure}[!t]
 \centering
 \includegraphics[width=\columnwidth]{figures/fig_ablation.pdf}
 \caption{\textbf{Auxiliary prediction head ablation} across seven synthetic noise families.
@@ -594,16 +613,25 @@ families; adding PPO improves burst by 6.5\,dB and regime-switch by
 % =====================================================================
 \section{Conclusion}\label{sec:conclusion}
 
-The hybrid BPTT+RL approach fills a niche between pure RL (flexible but
-slow to converge) and pure BPTT (fast but limited by gradient horizon).
-The auxiliary heads---especially $\hat{d}_{t+1}$---bridge the gap by
-forcing the controller to learn a forward model of the signal, which
-BPTT gradients then exploit for step-size control. The $0/200$
-divergence record, together with the $\lambda_{\max}{<}1$ safeguard,
-makes the controller deployable without per-noise tuning.
-Our RL$^2$ meta-policy transfers zero-shot to real MIT-BIH ECG
-($+6.7$\,dB over NLMS on 50\,Hz powerline). Multi-channel and $H_\infty$ \cite{hassibi2001hinfinity}
-extensions are future work.
+We presented meta-learned step-size and leakage controllers for
+leaky-NLMS, trained \emph{entirely on synthetic noise} yet robust under
+distribution shift. The hybrid BPTT+RL approach fills a niche between
+pure RL (flexible but slow) and pure BPTT (fast but gradient-horizon
+limited): the auxiliary heads---especially the signal-prediction head
+$\hat{d}_{t+1}$---force the controller to learn a forward model of the
+signal that the BPTT gradients then exploit for step-size control.
+Unlike supervised Meta-AF, the policy is optimised from rewards alone and
+never sees a clean reference, yet it beats NLMS on all eight noise
+families and Meta-AF on four. The $0/200$ divergence record and the
+structural $\lambda_{\max}{<}1$ safeguard make it deployable without
+per-noise retuning at $O(M)$ real-time cost, and the same RL$^2$
+meta-policy transfers zero-shot to real MIT-BIH ECG ($+6.7$\,dB over
+NLMS on a $50$\,Hz powerline tone absent from training).
+The main limitation is the truncated BPTT horizon ($\tau{=}64$), which
+leaves a small asymptotic gap behind Meta-AF on the most stationary
+noise; adaptive truncation, multi-channel and acoustic-echo settings,
+and $H_\infty$-robust \cite{hassibi2001hinfinity} action constraints are
+natural next steps.
 
 \clearpage
 \nocite{widrow1985adaptive,haykin2014adaptive,widrow1976stationary,kwong1992variable,aboulnasr1997robust,mathews1993gradient,sayed2003fundamentals,nikias1995signal,shao1993signal,shin2004variable,zhang2016improved,slock1993convergence,feitosa2019lms,engel2020differentiable,wang2024dlfilter,zhou2024antijamming,calabrese2018learning,wang2018deeprl,mismar2019deep,ye2019deep,zhang2020meta,wang2016learning,duan2016rl2,schulman2017ppo,agarwal2021deeprl,schulman2016gae,schulman2017trpo,ni2021recurrent,beck2023survey,tan2020speech,pandey2019deepdenoising,zhang2018deepfilter,defossez2020real,lima2022adaptive,mishra2018simple,finn2017maml,georgiou1999alpha,bitmead1980convergence,moody2001mitdb,lehtinen2018noise2noise,batson2019noise2self,hassibi2001hinfinity,diniz2020adaptive,albu2005gauss,paz1994kalman,benesty2002stereo,hochreiter1997lstm,raffin2021sb3,ozeki1984affine,chiang2019ecg,kingma2014adam,nagumo1967learning,liu2008kernel}

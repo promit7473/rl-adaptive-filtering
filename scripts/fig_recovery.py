@@ -85,7 +85,7 @@ def run_recovery_simulation():
             e_vss[t] = e
 
     # 6. Simulate Hybrid BPTT+RL Controller (Ours)
-    hybrid_path = os.path.join(ROOT, "results", "beast", "hybrid_seed42", "controller_final.pt")
+    hybrid_path = os.path.join(ROOT, "results", "runs", "hybrid_seed42", "controller_final.pt")
     hybrid_ckpt = torch.load(hybrid_path, map_location="cpu", weights_only=False)
     hybrid_ctrl = HybridController(feat_dim=11, hidden=512, n_lstm_layers=3, act_dim=2, n_families=8)
     hybrid_ctrl.load_state_dict(hybrid_ckpt["state_dict"])
@@ -139,7 +139,7 @@ def run_recovery_simulation():
     t_axis = (np.arange(N) / fs) * 1000  # Time in milliseconds
     
     # ── PLOTTING (framed panels, muted baselines, emphasised "ours") ──────────
-    fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(3.45, 2.6), sharex=True,
+    fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(3.40, 2.72), sharex=True,
                                    gridspec_kw={'height_ratios': [1.6, 1.0]})
 
     burst_lo = (60 / fs) * 1000
@@ -163,7 +163,7 @@ def run_recovery_simulation():
     
     # Modern Glow Effect for Meta-RL
     ax1.plot(t_axis, db_hyb, color=C_META, lw=3.5, alpha=0.25, zorder=5) # glow
-    ax1.plot(t_axis, db_hyb, color=C_META, lw=1.5, label="Meta-RL (ours)", zorder=6)
+    ax1.plot(t_axis, db_hyb, color=C_META, lw=1.5, label="Hybrid (ours)", zorder=6)
 
     ax1.set_ylabel("SS MSE (dB)", fontsize=8)
     ax1.set_ylim(-35, 15)

@@ -9,7 +9,6 @@ from .pid import PIDLeakyNLMS
 from .fixed_leakage_nlms import FixedLeakageNLMS
 from .meta_af import MetaAFFilter
 from .diff_filter import DifferentiableNLMS, DiffNLMSConfig
-from .diff_pnlms import DifferentiablePNLMS, DiffPNLMSConfig, PNLMSFilterWrapper, decode_action_pnlms
 
 __all__ = [
     "AdaptiveFilter", "windowize",
@@ -17,7 +16,6 @@ __all__ = [
     "LMP", "HeuristicMuScheduler", "KalmanMuScheduler",
     "RLS", "IIRNotch", "PIDLeakyNLMS", "FixedLeakageNLMS", "MetaAFFilter",
     "DifferentiableNLMS", "DiffNLMSConfig",
-    "DifferentiablePNLMS", "DiffPNLMSConfig", "PNLMSFilterWrapper", "decode_action_pnlms",
     "make_filter",
 ]
 

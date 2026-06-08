@@ -1,5 +1,0 @@
-results/v2_meta/ppo_meta_seed42_final.zip
-results/v2_meta/ppo_meta_seed142_final.zip
-results/v2_meta/ppo_meta_seed242_final.zip
-results/v2_meta/ppo_meta_seed342_final.zip
-results/v2_meta/ppo_meta_seed442_final.zip

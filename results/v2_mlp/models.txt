@@ -1,5 +1,0 @@
-results/v2_mlp/ppo_mlp_seed42_final.zip
-results/v2_mlp/ppo_mlp_seed142_final.zip
-results/v2_mlp/ppo_mlp_seed242_final.zip
-results/v2_mlp/ppo_mlp_seed342_final.zip
-results/v2_mlp/ppo_mlp_seed442_final.zip
