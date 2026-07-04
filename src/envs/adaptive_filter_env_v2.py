@@ -18,6 +18,7 @@ from gymnasium import spaces
 
 from ..signals.generators import make_signal
 from ..noise.families import make_noise, TRAIN_FAMILIES, OOD_FAMILIES
+from ..filters.diff_filter import mu_base_schedule, MU_SCHEDULE_GAIN
 
 FEAT_DIM_V2 = 11
 
@@ -49,6 +50,7 @@ class EnvConfigV2:
     robust_beta: float = 0.02
     terminal_ss_weight: float = 0.0
     no_reward_clip: bool = False
+    mu_base_schedule: bool = False
     ema_alpha: float = 0.01
     feat_scale: Sequence[float] = (5.0, 2.0, 5.0, 5.0, 1.0, 1.0, 1.0,
                                     4.0, 10.0, 2.0, 1.0)
@@ -88,6 +90,8 @@ class AdaptiveFilterEnvV2(gym.Env):
         self.fixed_signal = fixed_signal
         self.fixed_snr_db = fixed_snr_db
         self._seed_init = seed
+        self._preset: Optional[tuple[np.ndarray, np.ndarray]] = None
+        self.norm_scale: float = 1.0
 
         self.observation_space = spaces.Box(
             low=-1.0, high=1.0,
@@ -117,9 +121,28 @@ class AdaptiveFilterEnvV2(gym.Env):
         self._diverged_this_step: bool = False
         self.feat_scale = np.array(self.cfg.feat_scale, dtype=np.float32)
 
+    def set_preset_episode(self, clean: np.ndarray, noisy: np.ndarray) -> None:
+        """Inject a fixed (clean, noisy) pair so every method can be evaluated
+        on the identical realization. Applied on the next reset()."""
+        self._preset = (np.asarray(clean, dtype=np.float64),
+                        np.asarray(noisy, dtype=np.float64))
+
     def _sample_episode(self) -> None:
         cfg = self.cfg
         rng = self._np_random
+
+        if self._preset is not None:
+            self.clean, self.noisy = self._preset[0].copy(), self._preset[1].copy()
+            self.norm_scale = 1.0
+            if cfg.normalize_input:
+                s = float(np.std(self.noisy)) + 1e-9
+                self.noisy = self.noisy / s
+                self.clean = self.clean / s
+                self.norm_scale = s
+            self._task_meta = dict(family=self.fixed_family or "preset",
+                                   snr_db=self.fixed_snr_db or 0.0,
+                                   signal=self.fixed_signal or "preset")
+            return
 
         if self.fixed_signal is not None:
             sig_kind = self.fixed_signal
@@ -160,10 +183,12 @@ class AdaptiveFilterEnvV2(gym.Env):
         noise = make_noise(family, self.clean, rng, snr_db=snr, fs=cfg.fs)
         self.noisy = self.clean + noise
 
+        self.norm_scale = 1.0
         if cfg.normalize_input:
             s = float(np.std(self.noisy)) + 1e-9
             self.noisy = self.noisy / s
             self.clean = self.clean / s
+            self.norm_scale = s
 
         self._task_meta = dict(family=family, snr_db=snr, signal=sig_kind)
 
@@ -236,6 +261,12 @@ class AdaptiveFilterEnvV2(gym.Env):
     def step(self, action: np.ndarray):
         cfg = self.cfg
         mu, leakage = _decode_action_v2(np.asarray(action, dtype=np.float32), cfg)
+        if cfg.mu_base_schedule and not cfg.per_tap_action:
+            # Shared with the hybrid BPTT trainer via diff_filter — one
+            # formula for training, PPO rollouts, and eval.
+            base_mu = mu_base_schedule(self.t, cfg.episode_len)
+            mu = float(np.clip(base_mu + MU_SCHEDULE_GAIN * mu,
+                               cfg.mu_min, cfg.mu_max))
 
         self.x_buf = np.roll(self.x_buf, 1)
         self.x_buf[0] = self.noisy[self.t]

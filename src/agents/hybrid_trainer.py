@@ -36,7 +36,9 @@ import torch.nn.functional as F
 from torch.optim import Adam
 from torch.optim.lr_scheduler import CosineAnnealingLR
 
-from ..filters.diff_filter import DifferentiableNLMS, DiffNLMSConfig, decode_action_bptt
+from ..filters.diff_filter import (DifferentiableNLMS, DiffNLMSConfig,
+                                   decode_action_bptt, mu_base_schedule,
+                                   MU_SCHEDULE_GAIN)
 from ..signals.generators import make_signal
 from ..noise.families import make_noise, TRAIN_FAMILIES, OOD_FAMILIES
 from ..agents.controller import LSTMController, HybridController, TransformerController
@@ -52,7 +54,7 @@ class HybridTrainConfig:
     mu_min: float = 0.005
     mu_max: float = 2.0
     lam_min: float = 0.80
-    lam_max: float = 1.0
+    lam_max: float = 0.999
     lr: float = 3e-4
     weight_decay: float = 1e-5
     trunc_bptt: int = 64
@@ -88,19 +90,24 @@ class HybridTrainConfig:
     gae_lambda: float = 0.95
     rl_rollout_steps: int = 1024
     rl_n_envs: int = 4
+    rl_every: int = 1  # run the PPO phase every k-th iteration
     meta_episode_len: int = 3
     terminal_ss_weight: float = 0.3
     no_reward_clip: bool = True
     dropout: float = 0.0
+    use_mu_schedule: bool = True
 
 
+# Family index space covers all 8 families (the aux task head has 8 logits)
+# but TRAINING ONLY EVER SAMPLES TRAIN_FAMILIES — the OOD families
+# (alpha_stable, burst, chirp_interferer) are strictly held out so the
+# zero-shot generalisation claim in the paper is real.
 FAMILY_NAMES = list(TRAIN_FAMILIES) + list(OOD_FAMILIES)
 FAMILY_TO_IDX = {f: i for i, f in enumerate(FAMILY_NAMES)}
 
 CURRICULUM_WEIGHTS = {
-    "gaussian": 1.0, "colored": 2.0, "impulsive": 2.0,
+    "gaussian": 1.0, "colored": 1.5, "impulsive": 2.0,
     "time_varying": 2.0, "regime_switch": 3.0,
-    "alpha_stable": 2.0, "burst": 2.0, "chirp_interferer": 1.5,
 }
 
 SIGNAL_KINDS = ("multitone", "am", "sine", "ecg_like", "random_pulses", "square_burst")
@@ -110,15 +117,18 @@ SIGNAL_WEIGHTS /= SIGNAL_WEIGHTS.sum()
 
 def _sample_episode(rng: np.random.Generator, cfg: HybridTrainConfig,
                     curriculum_frac: float = 1.0):
-    fam_weights = np.array([CURRICULUM_WEIGHTS.get(f, 1.0) for f in FAMILY_NAMES])
+    train_fams = list(TRAIN_FAMILIES)
+    fam_weights = np.array([CURRICULUM_WEIGHTS.get(f, 1.0) for f in train_fams])
     if curriculum_frac < 1.0:
-        ood_weight = max(0.0, curriculum_frac - 0.5) * 2
-        for i, f in enumerate(FAMILY_NAMES):
-            if f in OOD_FAMILIES:
-                fam_weights[i] *= ood_weight
+        # ramp the hardest (non-stationary) families in gradually
+        hard = {"regime_switch", "time_varying"}
+        ramp = 0.25 + 0.75 * curriculum_frac
+        for i, f in enumerate(train_fams):
+            if f in hard:
+                fam_weights[i] *= ramp
     fam_weights /= fam_weights.sum()
 
-    family = str(rng.choice(FAMILY_NAMES, p=fam_weights))
+    family = str(rng.choice(train_fams, p=fam_weights))
     sig_kind = str(rng.choice(SIGNAL_KINDS, p=SIGNAL_WEIGHTS))
     snr = float(rng.choice([0.0, 5.0, 10.0, 15.0, 20.0]))
 
@@ -243,10 +253,12 @@ def train_hybrid(cfg: HybridTrainConfig, out_dir: str = "results/v3_hybrid",
         last2_e = torch.zeros(B, device=device)
         ema_e2 = torch.zeros(B, device=device)
         last_mu = torch.full((B,), float(np.sqrt(cfg.mu_min * cfg.mu_max)), device=device)
-        last_lam = torch.full((B,), float(np.sqrt(cfg.lam_min * 1.0)), device=device)
+        last_lam = torch.full((B,), float(np.sqrt(cfg.lam_min * cfg.lam_max)), device=device)
 
         bptt_loss = torch.tensor(0.0, device=device)
         chunk_start = 0
+        prev_pred_err = None  # prediction made at t-1 of e_t (one-step-ahead)
+        prev_pred_sig = None  # prediction made at t-1 of d_t
 
         for t in range(T):
             x_buf = torch.roll(x_buf, 1, dims=1)
@@ -282,9 +294,9 @@ def train_hybrid(cfg: HybridTrainConfig, out_dir: str = "results/v3_hybrid",
             action, state, value, pred_err, pred_sig, pred_task, pred_snr = controller(feat_t, state)
 
             mu, lam = decode_action_bptt(action[0], diff_cfg)
-            base_mu = 0.8 * max(0.05, 1.0 - 0.8 * t / T)
-            mu = base_mu + mu * 0.3
-            mu = torch.clamp(mu, cfg.mu_min, cfg.mu_max)
+            if cfg.use_mu_schedule:
+                mu = mu_base_schedule(t, T) + mu * MU_SCHEDULE_GAIN
+                mu = torch.clamp(mu, cfg.mu_min, cfg.mu_max)
             w = lam.unsqueeze(1) * w + (mu / input_norm).unsqueeze(1) * e.unsqueeze(1) * x_buf
 
             w_norm = torch.norm(w, dim=1)
@@ -299,15 +311,19 @@ def train_hybrid(cfg: HybridTrainConfig, out_dir: str = "results/v3_hybrid",
             if cfg.robust_alpha > 0 and len(all_errors_detached) >= 64:
                 window = torch.stack(all_errors_detached[-64:])
                 bptt_loss = bptt_loss + cfg.robust_alpha * window.abs().median()
-            if cfg.aux_error_weight > 0 and pred_err is not None and t > 0:
-                aux_loss = F.mse_loss(pred_err[0, 0, 0].expand(B), e.detach())
+            # One-step-ahead auxiliary losses: the prediction emitted at t-1
+            # is scored against the realised e_t / d_t (per batch element).
+            if cfg.aux_error_weight > 0 and prev_pred_err is not None:
+                aux_loss = F.mse_loss(prev_pred_err, e.detach())
                 bptt_loss = bptt_loss + cfg.aux_error_weight * aux_loss
-            if cfg.aux_signal_weight > 0 and pred_sig is not None and t > 0:
-                sig_loss = F.mse_loss(pred_sig[0, 0, 0].expand(B), d.detach())
+            if cfg.aux_signal_weight > 0 and prev_pred_sig is not None:
+                sig_loss = F.mse_loss(prev_pred_sig, d.detach())
                 bptt_loss = bptt_loss + cfg.aux_signal_weight * sig_loss
             if cfg.aux_task_weight > 0 and pred_task is not None:
-                task_loss = F.cross_entropy(pred_task[0, 0].unsqueeze(0), fam_idx_t[0:1])
+                task_loss = F.cross_entropy(pred_task[0], fam_idx_t)
                 bptt_loss = bptt_loss + cfg.aux_task_weight * task_loss
+            prev_pred_err = pred_err[0, :, 0] if pred_err is not None else None
+            prev_pred_sig = pred_sig[0, :, 0] if pred_sig is not None else None
 
             last2_e = last_e.detach()
             last_e = e.detach()
@@ -334,6 +350,9 @@ def train_hybrid(cfg: HybridTrainConfig, out_dir: str = "results/v3_hybrid",
                 ema_e2 = ema_e2.detach()
                 if state is not None:
                     state = (state[0].detach(), state[1].detach())
+                # predictions belong to the freed graph; drop them at the boundary
+                prev_pred_err = None
+                prev_pred_sig = None
 
         # === Logging ===
         errors_t = torch.stack(all_errors_detached, dim=1)
@@ -348,7 +367,8 @@ def train_hybrid(cfg: HybridTrainConfig, out_dir: str = "results/v3_hybrid",
         mean_lam = float(lam_t.mean().cpu())
 
         # === RL Phase (after warmup) — proper PPO with GAE ===
-        if it >= cfg.rl_phase_start and cfg.rl_loss_weight > 0:
+        if (it >= cfg.rl_phase_start and cfg.rl_loss_weight > 0
+                and it % max(1, getattr(cfg, 'rl_every', 1)) == 0):
             _rl_phase_proper(controller, diff_cfg, cfg, rng, device, optimizer)
 
         if scheduler is not None:
@@ -409,11 +429,13 @@ def _rl_phase_proper(controller, diff_cfg, cfg, rng, device, optimizer):
         mu_min=cfg.mu_min, mu_max=cfg.mu_max,
         leakage_min=cfg.lam_min, leakage_max=cfg.lam_max,
         state_window=1,
+        train_families=tuple(TRAIN_FAMILIES),  # OOD families stay held out
         reward_kind="shaped_log_mse",
         convergence_bonus=cfg.convergence_bonus,
         robust_alpha=cfg.robust_alpha,
         terminal_ss_weight=getattr(cfg, 'terminal_ss_weight', 0.3),
         no_reward_clip=getattr(cfg, 'no_reward_clip', True),
+        mu_base_schedule=cfg.use_mu_schedule,  # same action decode as BPTT phase
     )
 
     all_obs = []
@@ -449,9 +471,12 @@ def _rl_phase_proper(controller, diff_cfg, cfg, rng, device, optimizer):
                 logprob = dist.log_prob(action_sampled).sum(-1)
 
                 action_np = action_sampled.cpu().numpy()
+                # Store the obs the action was conditioned on, NOT the
+                # post-step obs — the PPO replay recomputes log-probs and
+                # values from this buffer, so it must see o_t with a_t.
+                ep_obs.append(obs.copy())
                 obs, reward, term, trunc, _ = env.step(action_np)
 
-                ep_obs.append(obs.copy())
                 ep_actions.append(action_np.copy())
                 ep_rewards.append(reward)
                 ep_values.append(float(value[0, 0, 0].cpu()))
@@ -487,14 +512,13 @@ def _rl_phase_proper(controller, diff_cfg, cfg, rng, device, optimizer):
     advantages = torch.zeros(n_steps, dtype=torch.float32, device=device)
     last_gae = 0.0
     for t in reversed(range(n_steps)):
-        if t == n_steps - 1:
-            next_value = 0.0
-            next_non_terminal = 0.0
-        else:
-            next_value = values_t[t + 1]
-            next_non_terminal = 1.0 - dones_t[t + 1]
-        delta = rewards_t[t] + cfg.gamma * next_value * next_non_terminal - values_t[t]
-        last_gae = delta + cfg.gamma * cfg.gae_lambda * next_non_terminal * last_gae
+        # dones_t[t] == 1 means the episode ended AT step t, so masking with
+        # (1 - dones_t[t]) stops both the bootstrap and the GAE recursion at
+        # episode/env boundaries in this flat-concatenated buffer.
+        non_terminal = 1.0 - dones_t[t]
+        next_value = values_t[t + 1] if t < n_steps - 1 else 0.0
+        delta = rewards_t[t] + cfg.gamma * next_value * non_terminal - values_t[t]
+        last_gae = delta + cfg.gamma * cfg.gae_lambda * non_terminal * last_gae
         advantages[t] = last_gae
 
     returns = advantages + values_t
@@ -561,7 +585,10 @@ def _quick_eval(controller, diff_cfg, cfg, device, rng):
 
     test_families = ["gaussian", "impulsive", "regime_switch", "burst", "alpha_stable"]
     for fam in test_families:
-        env_cfg = EnvConfigV2(episode_len=2000, state_window=1)
+        env_cfg = EnvConfigV2(episode_len=2000, state_window=1,
+                              mu_min=cfg.mu_min, mu_max=cfg.mu_max,
+                              leakage_min=cfg.lam_min, leakage_max=cfg.lam_max,
+                              mu_base_schedule=cfg.use_mu_schedule)
         env = AdaptiveFilterEnvV2(env_cfg, fixed_family=fam,
                                   fixed_snr_db=10.0, seed=42)
         obs, _ = env.reset()

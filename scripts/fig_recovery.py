@@ -87,38 +87,37 @@ def run_recovery_simulation():
     # 6. Simulate Hybrid BPTT+RL Controller (Ours)
     hybrid_path = os.path.join(ROOT, "results", "runs", "hybrid_seed42", "controller_final.pt")
     hybrid_ckpt = torch.load(hybrid_path, map_location="cpu", weights_only=False)
-    hybrid_ctrl = HybridController(feat_dim=11, hidden=512, n_lstm_layers=3, act_dim=2, n_families=8)
+    tcfg = hybrid_ckpt.get("config", None)
+    g = lambda k, d: getattr(tcfg, k, d) if tcfg is not None else d
+    hybrid_ctrl = HybridController(feat_dim=11, hidden=g('lstm_hidden', 256),
+                                   n_lstm_layers=g('n_lstm_layers', 2),
+                                   act_dim=2, n_families=8)
     hybrid_ctrl.load_state_dict(hybrid_ckpt["state_dict"])
     hybrid_ctrl.eval()
-    
-    env_cfg = EnvConfigV2(fs=fs, episode_len=N, filter_order=order, state_window=4)
-    env = AdaptiveFilterEnvV2(env_cfg, fixed_family="burst", fixed_signal="multitone", fixed_snr_db=10, seed=seed)
-    
-    # Overwrite environment signals to match our custom timing exactly
-    env.clean = clean
-    env.noisy = noisy
-    
+
+    env_cfg = EnvConfigV2(fs=fs, episode_len=N, filter_order=order, state_window=1,
+                          mu_min=g('mu_min', 0.005), mu_max=g('mu_max', 2.0),
+                          leakage_min=g('lam_min', 0.80),
+                          leakage_max=g('lam_max', 0.999),
+                          mu_base_schedule=g('use_mu_schedule', True))
+    env = AdaptiveFilterEnvV2(env_cfg, fixed_family="burst",
+                              fixed_signal="multitone", fixed_snr_db=10, seed=seed)
+    env.set_preset_episode(clean, noisy)
     obs, _ = env.reset(seed=seed)
-    # Re-overwrite to make sure they are active
-    env.clean = clean
-    env.noisy = noisy
-    
+
     state = None
     e_hyb = np.zeros(N)
     mu_hyb = np.zeros(N)
-    sw = obs.shape[0] // 11
-    
+
     for t in range(N):
-        obs_t = torch.tensor(obs.reshape(sw, -1)[-1], dtype=torch.float32).unsqueeze(0).unsqueeze(0)
+        obs_t = torch.tensor(obs[-11:], dtype=torch.float32).unsqueeze(0).unsqueeze(0)
         with torch.no_grad():
-            action, state, _, _, _, _, _ = hybrid_ctrl(obs_t, state)
-        
+            action, state, *_ = hybrid_ctrl(obs_t, state)
+
         act_np = action[0, 0].cpu().numpy()
-        decoded_mu, decoded_lam = _decode_action_v2(act_np, env_cfg)
-        mu_hyb[t] = decoded_mu
-        
         obs, _, term, trunc, _ = env.step(act_np)
-        e_hyb[t] = env.last_e
+        mu_hyb[t] = env.last_mu          # actual mu applied (incl. schedule)
+        e_hyb[t] = env.last_e * env.norm_scale  # raw units, same as baselines
         if term or trunc:
             break
 

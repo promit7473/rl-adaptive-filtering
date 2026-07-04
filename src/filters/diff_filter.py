@@ -26,7 +26,7 @@ class DiffNLMSConfig:
     mu_min: float = 0.005
     mu_max: float = 2.0
     lam_min: float = 0.80
-    lam_max: float = 1.0
+    lam_max: float = 0.999
     eps: float = 1e-6
     max_w_norm: float = 100.0
 
@@ -53,6 +53,21 @@ def decode_action_bptt(a: torch.Tensor, cfg: DiffNLMSConfig):
     lam = torch.exp(log_lam_min + lam_frac * (log_lam_max - log_lam_min))
 
     return mu, lam
+
+
+# Gain applied to the controller's decoded mu on top of the base schedule.
+MU_SCHEDULE_GAIN = 0.3
+
+
+def mu_base_schedule(t, episode_len):
+    """Decaying base step-size shared by the BPTT phase, the PPO-phase env,
+    and every eval path (the paper's 'identical decode in all phases'
+    guarantee lives here — do not fork this formula).
+
+    Effective mu = clip(mu_base_schedule(t, T) + MU_SCHEDULE_GAIN * mu_ctrl,
+                        mu_min, mu_max).
+    """
+    return 0.8 * max(0.05, 1.0 - 0.8 * t / episode_len)
 
 
 class DifferentiableNLMS(nn.Module):
