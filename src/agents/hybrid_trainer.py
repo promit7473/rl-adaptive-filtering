@@ -295,7 +295,7 @@ def train_hybrid(cfg: HybridTrainConfig, out_dir: str = "results/v3_hybrid",
 
             mu, lam = decode_action_bptt(action[0], diff_cfg)
             if cfg.use_mu_schedule:
-                mu = mu_base_schedule(t, T) + mu * MU_SCHEDULE_GAIN
+                mu = mu_base_schedule(t) + mu * MU_SCHEDULE_GAIN
                 mu = torch.clamp(mu, cfg.mu_min, cfg.mu_max)
             w = lam.unsqueeze(1) * w + (mu / input_norm).unsqueeze(1) * e.unsqueeze(1) * x_buf
 
@@ -424,7 +424,8 @@ def _rl_phase_proper(controller, diff_cfg, cfg, rng, device, optimizer):
     from ..envs.adaptive_filter_env_v2 import AdaptiveFilterEnvV2, EnvConfigV2
 
     env_cfg = EnvConfigV2(
-        episode_len=min(512, cfg.episode_len),
+        episode_len=cfg.episode_len,  # match BPTT/eval so the schedule range
+                                      # (down to the floor) is seen in RL too
         filter_order=cfg.filter_order,
         mu_min=cfg.mu_min, mu_max=cfg.mu_max,
         leakage_min=cfg.lam_min, leakage_max=cfg.lam_max,

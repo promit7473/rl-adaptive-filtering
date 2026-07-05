@@ -48,6 +48,7 @@
 \definecolor{panelblue}{RGB}{237,243,250}
 \definecolor{panelred}{RGB}{251,239,236}
 \definecolor{panelgray}{RGB}{245,245,245}
+\definecolor{panelzoom}{RGB}{248,246,240}
 \definecolor{wiregray}{RGB}{90,90,90}
 
 % Empirical numbers awaiting the post-fix retrain are wrapped in \pend{}
@@ -159,111 +160,136 @@ to MIT-BIH ECG (\pend{$+6.7$}\,dB over NLMS on $50$\,Hz powerline).
 \resizebox{\textwidth}{!}{%
 \begin{tikzpicture}[
   >=Stealth, x=1cm, y=1cm, font=\sffamily\footnotesize,
-  % text width is FIXED on every block: nodes cannot grow into each other
   blk/.style 2 args={rectangle, draw=black!40, line width=0.6pt,
                 rounded corners=3pt, fill=white, align=center,
                 inner xsep=4pt, inner ysep=4.5pt, text width=#1,
                 font=\sffamily\footnotesize, #2},
+  hblk/.style 2 args={rectangle, draw=black!35, line width=0.6pt,
+                rounded corners=2.5pt, align=center, inner xsep=3pt,
+                inner ysep=3pt, text width=#1, font=\sffamily\scriptsize, #2},
   sum/.style={circle, draw=black!50, line width=0.8pt, fill=white,
               minimum size=15pt, inner sep=0pt},
   chip/.style={rectangle, rounded corners=2.5pt, inner xsep=6pt,
                inner ysep=3pt, font=\sffamily\bfseries\tiny, text=white},
   arr/.style={-Stealth, line width=0.9pt, draw=wiregray, rounded corners=2pt},
   darr/.style={arr, dashed},
-  obswire/.style={-Stealth, line width=1.4pt, draw=deepblue},
-  actwire/.style={-Stealth, line width=1.4pt, draw=accentred},
+  thinarr/.style={-Stealth, line width=0.7pt, draw=black!55, rounded corners=2pt},
+  obswire/.style={-Stealth, line width=1.4pt, draw=deepblue, rounded corners=3pt},
+  actwire/.style={-Stealth, line width=1.4pt, draw=accentred, rounded corners=3pt},
   lbl/.style={font=\sffamily\scriptsize, inner sep=1.5pt},
   tin/.style={font=\sffamily\scriptsize, inner sep=1pt, text=black!75},
+  zoomline/.style={draw=black!35, dashed, line width=0.6pt},
   dot/.style={circle, fill=wiregray, inner sep=1.1pt}
 ]
 
-  % ════ background panels ════
+  % ════════════ background panels ════════════
   \begin{scope}[on background layer]
-    \fill[panelblue, rounded corners=7pt] (0.3,4.45)  rectangle (12.0,7.35);
-    \fill[panelred,  rounded corners=7pt] (0.3,0.40)  rectangle (12.0,3.05);
-    \fill[panelgray, rounded corners=7pt] (12.7,0.40) rectangle (18.7,7.35);
+    \fill[panelblue, rounded corners=7pt] (0.3,5.75) rectangle (13.4,8.65);
+    \fill[panelred,  rounded corners=7pt] (0.3,3.95) rectangle (13.4,5.55);
+    \fill[panelzoom, rounded corners=7pt] (0.3,0.45) rectangle (13.4,3.55);
+    \draw[zoomline, rounded corners=7pt] (0.3,0.45) rectangle (13.4,3.55);
+    \fill[panelgray, rounded corners=7pt] (14.05,0.45) rectangle (18.85,8.65);
     \draw[black!30, dashed, line width=0.5pt, rounded corners=7pt]
-         (12.7,0.40) rectangle (18.7,7.35);
+         (14.05,0.45) rectangle (18.85,8.65);
   \end{scope}
-  \node[chip, fill=deepblue,  anchor=east] at (11.75,7.02)
-       {A\ \ ONLINE FILTERING};
-  \node[chip, fill=accentred, anchor=west] at (0.55,2.72)
-       {B\ \ LEARNED CONTROLLER\ \ (OURS)};
-  \node[chip, fill=black!60,  anchor=west] at (12.95,7.02)
-       {C\ \ OFFLINE TRAINING};
-  \node[tin, anchor=west] at (12.97,6.58) {synthetic noise only};
 
-  % ════ A: plant (blocks only where there is state; labeled arrows else) ════
-  \node[sum] (add) at (2.2,5.4) {$+$};
-  \node[blk={2.6cm}{}] (filt) at (4.9,5.4)
+  \node[chip, fill=deepblue,  anchor=east] at (13.15,8.32) {A\ \ ONLINE FILTERING};
+  \node[chip, fill=accentred, anchor=west] at (0.55,5.24)  {B\ \ CONTROLLER (OURS)};
+  \node[chip, fill=black!55,  anchor=west] at (0.55,3.26)  {CONTROLLER INTERNALS\ \ (ZOOM)};
+  \node[chip, fill=black!60,  anchor=west] at (14.30,8.32) {C\ \ OFFLINE TRAINING};
+  \node[tin, anchor=west] at (14.32,7.90) {synthetic noise only};
+
+  % ════════════ A: plant ════════════
+  \node[sum] (add) at (2.3,7.35) {$+$};
+  \node[blk={2.5cm}{}] (filt) at (5.4,7.35)
         {\textbf{leaky-NLMS filter}\\[1pt] {\scriptsize $\mathbf{w}_t,\ M{=}16$}};
-  \node[sum] (sub) at (8.1,5.4) {$-$};
+  \node[sum] (sub) at (8.6,7.35) {$-$};
 
-  \draw[arr] (0.55,5.4) -- (add.west);
-  \node[lbl] at (0.90,5.66) {$d[n]$};
-  \node[dot] (jd) at (1.25,5.4) {};
-  \draw[arr] (2.2,6.55) -- (add.north);
-  \node[lbl, anchor=west] at (2.34,6.22) {$v[n]$};
-  \draw[arr] (add) -- (filt) node[midway, above=1.5pt, lbl] {$y[n]$};
-  \draw[arr] (filt) -- (sub) node[midway, above=1.5pt, lbl] {$\hat{d}[n]$};
-  \draw[arr] (sub.east) -- (11.55,5.4);
-  \node[lbl] at (9.25,5.66) {$e[n]$ (denoised)};
-  % desired signal, training only
-  \draw[darr] (jd) -- (1.25,6.92) -- (8.1,6.92) -- (sub.north);
-  \node[tin, fill=panelblue, inner sep=2.5pt] at (4.6,6.92)
-       {$d[n]$ --- training only};
+  \draw[arr] (0.65,7.35) -- (add.west);
+  \node[lbl] at (1.05,7.63) {$d[n]$};
+  \node[dot] (jd) at (1.35,7.35) {};
+  \draw[arr] (2.3,8.42) -- (add.north);
+  \node[lbl, anchor=west] at (2.44,8.12) {$v[n]$};
+  \draw[arr] (add) -- (filt) node[midway,above=1.5pt,lbl] {$y[n]$};
+  \draw[arr] (filt) -- (sub) node[midway,above=1.5pt,lbl] {$\hat{d}[n]$};
+  \draw[arr] (sub.east) -- (13.0,7.35);
+  \node[lbl] at (10.15,7.63) {$e[n]$ (denoised)};
+  \draw[darr] (jd) -- (1.35,8.28) -- (8.6,8.28) -- (sub.north);
+  \node[tin, fill=panelblue, inner sep=2.5pt] at (4.8,8.28) {$d[n]$ --- training only};
 
-  % ════ B: controller (actor under filter, state under output tap) ════
-  \node[blk={2.2cm}{}] (actor) at (4.9,1.9)
-        {\textbf{actor}\\[1pt] {\scriptsize $\mu_t{=}\mu_0(t){+}0.3\,\Delta\mu_t$}};
-  \node[blk={1.9cm}{}] (lstm) at (7.6,1.9)
-        {\textbf{LSTM} $256{\times}2$\\[1pt] {\scriptsize RL$^2$ memory}};
-  \node[blk={2.3cm}{}] (feat) at (10.4,1.9)
+  % ════════════ B: controller (single block in the loop) ════════════
+  \node[blk={5.4cm}{fill=white}] (ctrl) at (6.6,4.75)
+        {\textbf{recurrent actor--critic policy} $\pi_\theta$\\[1pt]
+         {\scriptsize 2-layer LSTM$_{256}$ ($\sim$1.07\,M params)}};
+
+  % loop wires: e_t observed (down then left), a_t acted (straight up to filter)
+  \node[dot, fill=deepblue] (je) at (10.8,7.35) {};
+  \draw[obswire] (je) -- (10.8,4.75) -- (ctrl.east);
+  \node[lbl, text=deepblue, anchor=west] at (10.95,5.95) {observe $e_t$};
+  \draw[actwire] (ctrl.north -| filt.south) -- (filt.south);
+  \node[lbl, text=accentred, anchor=west] at (5.55,5.95) {act $\mathbf{a}_t{=}(\mu_t,\lambda_t)$};
+
+  % ════════════ ZOOM: controller internal dataflow ════════════
+  \draw[zoomline] (ctrl.south west) -- (0.55,3.42);
+  \draw[zoomline] (ctrl.south east) -- (13.15,3.42);
+
+  \node[blk={2.3cm}{}] (phi) at (10.55,2.0)
         {\textbf{state} $\bm{\phi}_t{\in}\mathbb{R}^{11}$\\[1pt]
          {\scriptsize error, power \&\ action stats}};
-  \draw[arr] (feat) -- (lstm);
-  \draw[arr] (lstm) -- (actor);
-  \node[blk={4.3cm}{inner ysep=3pt, font=\sffamily\scriptsize}] (aux)
-        at (7.6,0.85)
-        {aux heads $\hat{e}_{t+1},\ \hat{d}_{t+1},\ \hat{f}$ --- training only};
-  \draw[darr] (lstm.south) -- (aux.north);
+  \node[blk={1.75cm}{}] (lstm) at (7.95,2.0)
+        {\textbf{LSTM}\\ $256{\times}2$};
+  \node[hblk={2.0cm}{fill=panelred}]  (actor)  at (5.15,2.85)
+        {\textbf{actor} head};
+  \node[hblk={2.0cm}{fill=panelblue}] (critic) at (5.15,2.0)
+        {\textbf{critic} head};
+  \node[hblk={2.0cm}{fill=panelgray}] (aux)    at (5.15,1.15)
+        {\textbf{aux} heads};
 
-  % ════ the loop: two straight colored verticals ════
-  \node[dot, fill=deepblue] (je) at (10.4,5.4) {};
-  \draw[obswire] (je) -- (feat.north);
-  \node[lbl, text=deepblue, anchor=east] at (10.22,3.75) {observe $e_t$};
-  \draw[actwire] (actor.north) -- (filt.south);
-  \node[lbl, text=accentred, anchor=east] at (4.72,3.75)
-       {act $\mathbf{a}_t{=}(\mu_t,\lambda_t)$};
+  \draw[thinarr] (12.85,2.0) -- (phi.east);
+  \node[lbl, anchor=west] at (12.05,2.42) {$e_t,\mathbf{w}_t$};
+  \node[tin, anchor=west] at (12.05,1.62) {from loop};
+  \draw[thinarr] (phi) -- (lstm);
+  \draw[thinarr] (lstm.west) -- (actor.east);
+  \draw[thinarr] (lstm.west) -- (critic.east);
+  \draw[thinarr] (lstm.west) -- (aux.east);
 
-  % ════ C: training column (each phase aligned with the row it trains) ════
-  \node[blk={3.4cm}{}] (bptt) at (15.7,5.4)
+  \draw[-Stealth, line width=1.0pt, draw=accentred] (actor.west) -- (2.95,2.85);
+  \node[lbl, anchor=west] at (1.05,2.85) {$\mathbf{a}_t{=}(\mu_t,\lambda_t)$};
+  \draw[thinarr] (critic.west) -- (2.95,2.0);
+  \node[lbl, anchor=west] at (1.05,2.0) {$V_t$~{\scriptsize(train)}};
+  \draw[thinarr] (aux.west) -- (2.95,1.15);
+  \node[lbl, anchor=west] at (1.05,1.15) {$\hat{e}_{t+1},\hat{d}_{t+1},\hat{f}$};
+  \node[tin, anchor=west] at (1.05,0.78) {critic \&\ aux: training only};
+
+  % ════════════ C: training ════════════
+  \node[blk={3.3cm}{}] (bptt) at (16.45,6.7)
         {\textbf{1\ \ BPTT phase}\\[1pt]
          {\scriptsize truncated $\nabla$ through filter}\\
          {\scriptsize MSE $+$ aux losses}};
-  \node[blk={3.4cm}{}] (ppo) at (15.7,1.9)
+  \node[blk={3.3cm}{}] (ppo) at (16.45,3.4)
         {\textbf{2\ \ PPO phase}\\[1pt]
          {\scriptsize shaped reward, GAE($\lambda$)}\\
          {\scriptsize RL$^2$ meta-episodes}};
   \draw[arr] (bptt) -- (ppo)
-       node[midway, right=3pt, tin, align=left] {alternate\\per iteration};
-  \draw[darr] (bptt.west) -- (12.08,5.4);
-  \node[tin, anchor=south] at (12.35,5.52) {$\nabla_{\!\theta}$};
-  \draw[darr] (ppo.west)  -- (12.08,1.9);
-  \node[tin, anchor=south] at (12.35,2.02) {$\nabla_{\!\theta}$};
+       node[midway,right=3pt,tin,align=left] {alternate\\per iteration};
+  \draw[darr] (bptt.west) -- (13.5,6.7);
+  \node[tin,anchor=south] at (13.75,6.82) {$\nabla_\theta$};
+  \draw[darr] (ppo.west) -- (13.5,3.4);
+  \node[tin,anchor=south] at (13.75,3.52) {$\nabla_\theta$};
 
 \end{tikzpicture}%
 }
 \caption{\textbf{Proposed hybrid BPTT+RL system.}
-  The plant (A) and controller (B) form a closed loop: the filtering
-  error $e_t$ is observed, encoded into an 11-D state $\bm{\phi}_t$,
-  and a recurrent policy returns the step-size and leakage
-  $\mathbf{a}_t{=}(\mu_t,\lambda_t)$ of the leaky-NLMS update, on top
-  of a decaying base schedule $\mu_0(t)$ \eqref{eq:schedule}.
-  Training (C) alternates truncated BPTT through the differentiable
-  filter with PPO on shaped rewards, entirely on synthetic noise;
-  auxiliary heads and the clean reference $d[n]$ are used in training
-  only.}
+  The plant (A) and learned controller (B) form a closed loop: the
+  filtering error $e_t$ is observed, encoded into an 11-D state
+  $\bm{\phi}_t$, and a recurrent actor--critic policy $\pi_\theta$ returns
+  the step-size and leakage $\mathbf{a}_t{=}(\mu_t,\lambda_t)$ of the
+  leaky-NLMS update, on top of a decaying base schedule $\mu_0(t)$
+  \eqref{eq:schedule}. The zoom expands the controller: one shared LSTM
+  feeds an actor head, with critic and auxiliary heads
+  ($\hat{e}_{t+1},\hat{d}_{t+1},\hat{f}$) used in training only. Training
+  (C) alternates truncated BPTT through the differentiable filter with PPO
+  on shaped rewards, entirely on synthetic noise.}
 \label{fig:arch}
 \end{figure*}
 

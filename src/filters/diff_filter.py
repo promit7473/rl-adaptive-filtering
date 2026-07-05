@@ -58,16 +58,34 @@ def decode_action_bptt(a: torch.Tensor, cfg: DiffNLMSConfig):
 # Gain applied to the controller's decoded mu on top of the base schedule.
 MU_SCHEDULE_GAIN = 0.3
 
+# Fixed decay horizon (in steps) for the base step-size schedule. The schedule
+# is a function of the ABSOLUTE step t only, NOT of the episode length, so the
+# curve is byte-identical in the BPTT phase, the PPO-phase env, and every eval
+# path regardless of how long each episode is. This is what makes the paper's
+# 'identical decode in all phases' guarantee actually true. Training uses
+# episode_len == MU_SCHEDULE_REF so the full curve (down to the 0.16 floor) is
+# seen; longer eval episodes simply hold at the floor past this horizon.
+MU_SCHEDULE_REF = 1000
 
-def mu_base_schedule(t, episode_len):
+
+def mu_base_schedule(t):
     """Decaying base step-size shared by the BPTT phase, the PPO-phase env,
-    and every eval path (the paper's 'identical decode in all phases'
-    guarantee lives here — do not fork this formula).
+    and every eval path. Depends on the absolute step t and the fixed
+    MU_SCHEDULE_REF horizon only — do NOT reintroduce an episode_len argument
+    (that is exactly the bug that broke the 'identical decode' guarantee).
 
-    Effective mu = clip(mu_base_schedule(t, T) + MU_SCHEDULE_GAIN * mu_ctrl,
+    Warms up from 0.80 at t=0 down to a 0.16 plateau at t=MU_SCHEDULE_REF and
+    HOLDS there for t>REF. The clamp matters: training episodes are REF steps
+    long, so without it a longer eval/real signal (e.g. a 10.8k-sample ECG
+    record) would drive the base below any value seen in training. With it,
+    longer episodes simply spend more time in the same 0.16 steady-state
+    regime the controller was trained to end in.
+
+    Effective mu = clip(mu_base_schedule(t) + MU_SCHEDULE_GAIN * mu_ctrl,
                         mu_min, mu_max).
     """
-    return 0.8 * max(0.05, 1.0 - 0.8 * t / episode_len)
+    tt = min(t, MU_SCHEDULE_REF)
+    return 0.8 * (1.0 - 0.8 * tt / MU_SCHEDULE_REF)
 
 
 class DifferentiableNLMS(nn.Module):

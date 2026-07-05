@@ -264,7 +264,7 @@ class AdaptiveFilterEnvV2(gym.Env):
         if cfg.mu_base_schedule and not cfg.per_tap_action:
             # Shared with the hybrid BPTT trainer via diff_filter — one
             # formula for training, PPO rollouts, and eval.
-            base_mu = mu_base_schedule(self.t, cfg.episode_len)
+            base_mu = mu_base_schedule(self.t)
             mu = float(np.clip(base_mu + MU_SCHEDULE_GAIN * mu,
                                cfg.mu_min, cfg.mu_max))
 

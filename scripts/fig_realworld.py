@@ -39,13 +39,18 @@ NOISE_LABEL = ["Gaussian", "Impulsive", "Burst", "Reg.-Switch",
 
 
 def paired_improvement(d, noise, method):
-    """Per-(record, seed) improvement of `method` over NLMS, in dB."""
+    """Per-(record, seed, snr) improvement of `method` over NLMS, in dB.
+
+    snr_db is part of the pairing key: with >1 eval SNR, (record, seed) alone
+    is not unique and pandas would misalign the subtraction silently.
+    """
     sub = d[d.noise == noise]
-    a = sub[sub.method == BASELINE].set_index(["record", "seed"])["ss_mse_db"]
-    b = sub[sub.method == method].set_index(["record", "seed"])["ss_mse_db"]
+    key = ["record", "seed", "snr_db"]
+    a = sub[sub.method == BASELINE].set_index(key)["ss_mse_db"]
+    b = sub[sub.method == method].set_index(key)["ss_mse_db"]
     common = a.index.intersection(b.index)
     if len(common) < 3:
-        raise SystemExit(f"only {len(common)} paired (record, seed) rows for "
+        raise SystemExit(f"only {len(common)} paired {tuple(key)} rows for "
                          f"{method!r} vs {BASELINE!r} on {noise!r}")
     return (a.loc[common] - b.loc[common]).values  # positive = better
 

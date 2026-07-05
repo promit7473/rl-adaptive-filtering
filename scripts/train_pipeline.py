@@ -189,8 +189,10 @@ def run_bptt(seed):
 # ============================================================
 # Action space + decode shared with the hybrid so the comparison
 # isolates the training algorithm, not the action parameterization.
+# episode_len == MU_SCHEDULE_REF (1000) so RL-only trains under the exact same
+# base step-size curve as the BPTT phase, the hybrid RL phase, and eval.
 RL_ENV_KW = dict(
-    fs=360.0, episode_len=2000, filter_order=16,
+    fs=360.0, episode_len=1000, filter_order=16,
     mu_min=0.005, mu_max=2.0, leakage_min=0.80, leakage_max=0.999,
     state_window=1,
     mu_base_schedule=True,

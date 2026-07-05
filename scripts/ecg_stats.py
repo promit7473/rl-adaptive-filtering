@@ -32,10 +32,12 @@ def main():
 
     for noise in sorted(df.noise.unique()):
         sub = df[df.noise == noise]
+        # snr_db in the key: (record, seed) is not unique across >1 eval SNR.
+        key = ["record", "seed", "snr_db"]
         a = (sub[sub.method == OURS]
-             .set_index(["record", "seed"])["ss_mse_db"].sort_index())
+             .set_index(key)["ss_mse_db"].sort_index())
         b = (sub[sub.method == BASE]
-             .set_index(["record", "seed"])["ss_mse_db"].sort_index())
+             .set_index(key)["ss_mse_db"].sort_index())
         common = a.index.intersection(b.index)
         a, b = a.loc[common], b.loc[common]
         if len(common) < 5:

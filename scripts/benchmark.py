@@ -39,13 +39,20 @@ ALL_FAMILIES = list(TRAIN_FAMILIES) + list(OOD_FAMILIES)
 
 
 def _row(method, family, snr, seed, e, dt_ms, **extra):
-    e = np.asarray(e)
-    ss = steady_state_mse(e)
+    # Same schema as train_pipeline.run_eval._row (both write synthetic.csv and
+    # make_table1.py reads whichever one produced it): NaN-safe, incl. diverged.
+    e = np.asarray(e, dtype=np.float64)
+    finite = np.isfinite(e)
+    n_nonfinite = int(np.sum(~finite))
+    e_safe = np.where(finite, e, 1e6)
+    ss = steady_state_mse(e_safe)
+    ss_db = float(10 * np.log10(ss + 1e-12))
     return dict(method=method, family=family, snr_db=snr, seed=seed,
-                ss_mse=float(ss), ss_mse_db=float(10 * np.log10(ss + 1e-12)),
-                ep_mse=float(np.mean(e ** 2)),
-                conv_time=float(convergence_time(e)),
-                inference_time_ms=float(dt_ms), **extra)
+                ss_mse=float(ss), ss_mse_db=ss_db,
+                ep_mse=float(np.mean(e_safe ** 2)),
+                conv_time=float(convergence_time(e_safe)),
+                inference_time_ms=float(dt_ms),
+                diverged=int(n_nonfinite > 0 or ss_db > 10.0), **extra)
 
 
 def _classical_run(filt, noisy, clean, order, single_input=False):
