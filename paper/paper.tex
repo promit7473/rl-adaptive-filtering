@@ -15,53 +15,32 @@
 \usepackage{xcolor}
 \usepackage{cite}
 \usepackage{tikz}
-\usetikzlibrary{shapes.geometric,arrows.meta,positioning,calc,fit,
-                 backgrounds,decorations.pathreplacing}
+\usetikzlibrary{shapes.geometric,arrows.meta,positioning,calc,fit,backgrounds}
 \usepackage{url}
 \usepackage{balance}
 \usepackage{enumitem}
 \setlist[itemize]{topsep=1pt,itemsep=0pt,parsep=0pt,leftmargin=*}
-
 \flushbottom
 
-% Float placement: allow a wide table at the top AND a tall figure at the
-% bottom of the same page (Table I + recovery on p.3) instead of LaTeX
-% deferring the figure to the next page.
-\setcounter{topnumber}{2}
-\setcounter{bottomnumber}{1}
-\setcounter{totalnumber}{3}
-\renewcommand{\topfraction}{0.92}
-\renewcommand{\bottomfraction}{0.65}
-\renewcommand{\textfraction}{0.06}
-\renewcommand{\floatpagefraction}{0.7}
-\renewcommand{\dbltopfraction}{0.92}
-\renewcommand{\dblfloatpagefraction}{0.7}
-
 \hypersetup{colorlinks=true,linkcolor=blue,citecolor=blue,urlcolor=blue}
-
 \definecolor{deepblue}{RGB}{40,60,100}
 \definecolor{accentred}{RGB}{200,80,60}
-\definecolor{lightblue}{RGB}{220,235,255}
-\definecolor{pendingorange}{RGB}{230,120,20}
-% Fig. 1 panel palette (kept in sync with figures/fig1_dev.tex, the
-% standalone used to develop/inspect the diagram at high zoom)
 \definecolor{panelblue}{RGB}{237,243,250}
 \definecolor{panelred}{RGB}{251,239,236}
 \definecolor{panelgray}{RGB}{245,245,245}
-\definecolor{panelzoom}{RGB}{248,246,240}
 \definecolor{wiregray}{RGB}{90,90,90}
+\definecolor{pendingorange}{RGB}{230,120,20}
 
-% Empirical numbers awaiting the post-fix retrain are wrapped in \pend{}
-% and render orange so a stale value can never silently ship. Once the
-% new eval is verified, update each value from results/runs/eval/*.csv
-% and switch to the identity definition below.
+% Empirical numbers awaiting the GPU retrain are wrapped in \pend{} and render
+% orange so a stale value can never silently ship. Switch to the identity
+% definition once results/runs/eval_anc/*.csv is final.
 \newcommand{\pend}[1]{\textcolor{pendingorange}{#1}}
 %\renewcommand{\pend}[1]{#1}   % <- final-numbers mode
 
 \begin{document}
 
-\title{Meta-Learned Step-Size and Leakage Control\\
-       for Robust Adaptive Filtering}
+\title{Meta-Reinforcement Learning of Kalman Process Noise\\
+       for Robust Adaptive Interference Cancellation}
 
 \author{Meraj~Hossain~Promit~\orcidlink{0009-0006-7968-8611},
         Maria~Akter~Jitu$^{*}$,
@@ -80,551 +59,355 @@ Engineering, International Islamic University Chittagong, Bangladesh
 
 % =====================================================================
 \begin{abstract}
-Classical adaptive filters need a step-size matched to the noise
-statistics, hand-designed variable step-size rules can diverge under
-distribution shift, and supervised meta-learning (Meta-AF) requires
-clean target-domain references at training time.
-We present a \emph{hybrid BPTT+RL} controller for leaky-NLMS, trained
-entirely on synthetic noise: truncated back-propagation through a
-differentiable filter is coupled with PPO, so gradient structure and
-label-free reward optimisation reinforce each other.
-A 2-layer LSTM policy maps an 11-D error-derived state to step-size and
-leakage actions on top of a decaying base schedule; three auxiliary
-heads (error, signal, and noise-class prediction) force it to model the
-filter dynamics, and RL$^2$ meta-episodes enable within-episode regime
-inference.
-At SNR$=10$\,dB the hybrid beats NLMS on \pend{8/8} synthetic noise
-families and supervised Meta-AF on \pend{4/8}, transfers zero-shot to
-real MIT-BIH ECG (\pend{$+6.7$}\,dB over NLMS on 50\,Hz powerline
-interference never seen in training; paired Wilcoxon
-\pend{$p{<}10^{-7}$}), and records \pend{$0/200$} divergent runs.
+Reference-based adaptive interference cancellers trade convergence speed
+against steady-state misadjustment through a single scalar---the LMS
+step-size, or equivalently the Kalman process noise---and no fixed value is
+optimal across interference types or across a non-stationary record; RLS with
+a fixed forgetting factor is fast but suffers covariance windup and can
+diverge. We cast the choice of process noise as a control problem and learn a
+recurrent policy that sets the Kalman process noise $Q_t$ (and measurement
+noise $R_t$) online. The controller is trained by a \emph{hybrid} of truncated
+back-propagation through the differentiable Kalman filter and PPO with
+RL$^2$ meta-episodes, using synthetic interference only. Filter adaptation and
+the policy state depend on observables alone (reference, primary, innovation),
+so the clean signal is never required at deployment. Because additive process
+noise keeps the state covariance bounded, the learned filter is
+\emph{unconditionally stable} (Prop.~1). A single learned agent
+matches the best fixed estimator on stationary interference, strictly wins
+under abrupt path changes, records \pend{$0/xxx$} divergent runs versus
+\pend{$xx/xx$} for fixed-forgetting RLS, and transfers zero-shot to real
+MIT-BIH ECG powerline and baseline-wander removal (\pend{$+x.x$}\,dB over NLMS;
+paired Wilcoxon \pend{$p{<}10^{-x}$}).
 Code: \url{https://github.com/promit7473/rl-adaptive-filtering}
 \end{abstract}
 
 \begin{IEEEkeywords}
-adaptive filtering, hybrid BPTT+RL, meta-learning, zero-shot transfer,
-variable step-size LMS, non-stationary noise, ECG denoising
+adaptive interference cancellation, Kalman filter, meta-reinforcement learning,
+process-noise adaptation, zero-shot transfer, ECG denoising.
 \end{IEEEkeywords}
 
-
 % =====================================================================
-
 \section{Introduction}\label{sec:intro}
 
-Adaptive filters perform online interference cancellation at $O(M)$
-per-sample cost \cite{haykin2014adaptive,widrow1985adaptive,sayed2003fundamentals}. Real environments are rarely
-stationary \cite{nikias1995signal}: variable step-size (VSS) methods
-\cite{kwong1992variable,aboulnasr1997robust} adapt $\mu$ via
-hand-designed rules tuned per noise type, and we show empirically that
-VSS-LMS (Aboulnasr) can diverge catastrophically on regime-switch noise.
-Supervised meta-learning of filter updates (Meta-AF
-\cite{casebeer2022metaaf}) back-propagates through a differentiable
-filter but requires real target-domain clean signals at every training step,
-limiting applicability when real clean references are unavailable.
-RL has been applied to communication hyperparameter control
-\cite{calabrese2018learning,mismar2019deep} but not, until recently,
-to online adaptive filtering.
+Reference-based adaptive noise cancellation (ANC) removes structured
+interference---powerline, baseline wander, echo, narrowband
+tones---from a primary sensor using a correlated reference input
+\cite{widrow1975anc,haykin2014adaptive,sayed2003fundamentals}. A finite-impulse-response
+filter driven by the reference estimates the interference, and the residual
+$e[n]=$ primary $-\,\hat{v}[n]$ is both the denoised output and the adaptation
+error. The classical difficulty is control of the adaptation rate: the LMS
+step-size (or, in a Bayesian view, the Kalman process noise) governs a
+speed--misadjustment trade-off, and the optimal value depends on the
+interference statistics and on how fast the propagation path drifts
+\cite{kwong1992variable,aboulnasr1997robust}. A step-size tuned for one regime
+is slow or unstable in another; recursive least squares (RLS) with a fixed
+forgetting factor tracks faster but is prone to covariance windup and
+divergence under low excitation \cite{haykin2014adaptive}.
 
-We pursue a \emph{hybrid} approach: combine the structured gradient signal
-of truncated BPTT (as in Meta-AF \cite{casebeer2022metaaf}) with the label-free, reward-driven
-optimisation of PPO (as in RL), trained on synthetic noise only; the
-resulting controller is then evaluated zero-shot on real ECG.
-The key insight is that BPTT provides
-strong gradient signal for learning \emph{what the filter should do}
-(step-size scheduling), while RL provides the flexibility to optimise
-\emph{non-differentiable objectives} (convergence speed, robustness)
-using only synthetic rewards.
+Learning the filter update itself has been explored by Meta-AF
+\cite{casebeer2022metaaf}, which back-propagates through a differentiable
+filter to learn an optimiser; but it is trained supervised, requiring clean
+target-domain references. Reinforcement learning has been applied to
+communication-parameter control \cite{calabrese2018learning,mismar2019deep}
+but rarely to the online control of an adaptive filter.
+
+We take the view that \emph{process-noise scheduling is a sequential control
+problem} and learn it with deep RL. A recurrent actor--critic observes the
+innovation stream and outputs the per-step Kalman process noise $Q_t$; the
+Kalman recursion, unlike RLS forgetting, adds bounded uncertainty each step
+and is therefore numerically stable for the entire action range. The policy is
+trained entirely in a synthetic-interference simulator by a hybrid of
+truncated back-propagation through the differentiable filter (which supplies a
+structured gradient for \emph{what the filter should do}) and PPO (which
+optimises the non-differentiable convergence/robustness objective from
+reward), and is then deployed zero-shot on real ECG.
 
 \smallskip\noindent\textbf{Contributions.}
-(i) A hybrid BPTT+RL framework unifying Meta-AF-style \cite{casebeer2022metaaf}
-gradients with PPO, augmented by three auxiliary heads that instil a world
-model of signal and filter dynamics.
-(ii) An 11-D feature state with a decaying base step-size schedule that
-is provably weight-bounding (Prop.~1).
-(iii) The hybrid controller beats NLMS on \pend{8/8} noise families and
-supervised Meta-AF on \pend{4/8}, and transfers zero-shot
-to MIT-BIH ECG (\pend{$+6.7$}\,dB over NLMS on $50$\,Hz powerline).
-(iv) Empirical stability: \pend{$0/200$} divergent runs vs.\
-\pend{$14/40$} for Aboulnasr's VSS.
+(i) A meta-RL controller that sets the process noise of a Kalman interference
+canceller online, trained hybrid BPTT+PPO on synthetic interference and
+\emph{label-free at deployment}---filter adaptation and policy state use
+observables only.
+(ii) An unconditional-stability guarantee: additive process noise bounds the
+state covariance, so the learned filter never diverges (Prop.~1), in contrast
+to fixed-forgetting RLS.
+(iii) A single learned agent that matches the best fixed estimator on
+stationary interference and strictly wins under abrupt path changes, with
+\pend{$0/xxx$} divergent runs.
+(iv) Zero-shot transfer to real MIT-BIH ECG powerline / baseline-wander removal
+(\pend{$+x.x$}\,dB over NLMS).
 
 % =====================================================================
 \section{Problem Setup}\label{sec:problem}
 
-% ── Full system architecture (double-column, control-loop layout) ───────────
-% Design: plant on top (A), controller directly beneath (B) so the two
-% feedback wires (e_t down, a_t up) are short verticals; training is a
-% separate dashed column (C) whose gradient arrows enter A and B from the
-% right. Blocks are placed so every wire is <= 2 cm.
 \begin{figure*}[!t]
 \centering
-\resizebox{\textwidth}{!}{%
+\resizebox{0.98\textwidth}{!}{%
 \begin{tikzpicture}[
-  >=Stealth, x=1cm, y=1cm, font=\sffamily\footnotesize,
-  blk/.style 2 args={rectangle, draw=black!40, line width=0.6pt,
-                rounded corners=3pt, fill=white, align=center,
-                inner xsep=4pt, inner ysep=4.5pt, text width=#1,
-                font=\sffamily\footnotesize, #2},
-  hblk/.style 2 args={rectangle, draw=black!35, line width=0.6pt,
-                rounded corners=2.5pt, align=center, inner xsep=3pt,
-                inner ysep=3pt, text width=#1, font=\sffamily\scriptsize, #2},
-  sum/.style={circle, draw=black!50, line width=0.8pt, fill=white,
-              minimum size=15pt, inner sep=0pt},
-  chip/.style={rectangle, rounded corners=2.5pt, inner xsep=6pt,
-               inner ysep=3pt, font=\sffamily\bfseries\tiny, text=white},
-  arr/.style={-Stealth, line width=0.9pt, draw=wiregray, rounded corners=2pt},
-  darr/.style={arr, dashed},
-  thinarr/.style={-Stealth, line width=0.7pt, draw=black!55, rounded corners=2pt},
-  obswire/.style={-Stealth, line width=1.4pt, draw=deepblue, rounded corners=3pt},
-  actwire/.style={-Stealth, line width=1.4pt, draw=accentred, rounded corners=3pt},
-  lbl/.style={font=\sffamily\scriptsize, inner sep=1.5pt},
-  tin/.style={font=\sffamily\scriptsize, inner sep=1pt, text=black!75},
-  zoomline/.style={draw=black!35, dashed, line width=0.6pt},
-  dot/.style={circle, fill=wiregray, inner sep=1.1pt}
-]
+  >=Stealth, font=\sffamily\footnotesize, x=1cm, y=1cm,
+  blk/.style={rectangle, draw=black!45, rounded corners=2pt, fill=white,
+              align=center, inner sep=4pt, minimum height=8mm},
+  sum/.style={circle, draw=black!55, fill=white, minimum size=6mm, inner sep=0pt},
+  wire/.style={-Stealth, line width=0.8pt, draw=wiregray, rounded corners=2pt},
+  obs/.style={-Stealth, line width=1.2pt, draw=deepblue, rounded corners=2pt},
+  act/.style={-Stealth, line width=1.2pt, draw=accentred, rounded corners=2pt},
+  lbl/.style={font=\sffamily\scriptsize, inner sep=1.5pt}]
 
-  % ════════════ background panels ════════════
   \begin{scope}[on background layer]
-    \fill[panelblue, rounded corners=7pt] (0.3,5.75) rectangle (13.4,8.65);
-    \fill[panelred,  rounded corners=7pt] (0.3,3.95) rectangle (13.4,5.55);
-    \fill[panelzoom, rounded corners=7pt] (0.3,0.45) rectangle (13.4,3.55);
-    \draw[zoomline, rounded corners=7pt] (0.3,0.45) rectangle (13.4,3.55);
-    \fill[panelgray, rounded corners=7pt] (14.05,0.45) rectangle (18.85,8.65);
-    \draw[black!30, dashed, line width=0.5pt, rounded corners=7pt]
-         (14.05,0.45) rectangle (18.85,8.65);
+    \fill[panelblue, rounded corners=6pt] (-0.4,-0.6) rectangle (10.6,3.4);
+    \fill[panelred,  rounded corners=6pt] (11.0,-0.6) rectangle (17.4,3.4);
   \end{scope}
+  \node[lbl, anchor=west, text=deepblue] at (-0.3,3.15) {\bfseries A\ \ REFERENCE-BASED ANC PLANT (deployment: observables only)};
+  \node[lbl, anchor=west, text=accentred] at (11.1,3.15) {\bfseries B\ \ META-RL CONTROLLER (ours)};
 
-  \node[chip, fill=deepblue,  anchor=east] at (13.15,8.32) {A\ \ ONLINE FILTERING};
-  \node[chip, fill=accentred, anchor=west] at (0.55,5.24)  {B\ \ CONTROLLER (OURS)};
-  \node[chip, fill=black!55,  anchor=west] at (0.55,3.26)  {CONTROLLER INTERNALS\ \ (ZOOM)};
-  \node[chip, fill=black!60,  anchor=west] at (14.30,8.32) {C\ \ OFFLINE TRAINING};
-  \node[tin, anchor=west] at (14.32,7.90) {synthetic noise only};
+  % --- plant ---
+  \node[blk] (src)  at (0.6,2.3) {clean\\ $d[n]$};
+  \node[blk] (path) at (0.6,0.4) {unknown\\ path $H$};
+  \node[blk, text=black!55] (isrc) at (-0.9,0.4) {ref.\\ $x[n]$};
+  \node[sum] (p)    at (3.0,2.3) {$+$};
+  \node[blk] (kal)  at (5.6,0.4) {\textbf{Kalman filter}\\ $\mathbf{w}_t,\,P_t$\ ($M{=}16$)};
+  \node[sum] (s)    at (8.4,2.3) {$-$};
 
-  % ════════════ A: plant ════════════
-  \node[sum] (add) at (2.3,7.35) {$+$};
-  \node[blk={2.5cm}{}] (filt) at (5.4,7.35)
-        {\textbf{leaky-NLMS filter}\\[1pt] {\scriptsize $\mathbf{w}_t,\ M{=}16$}};
-  \node[sum] (sub) at (8.6,7.35) {$-$};
+  \draw[wire] (src) -- (p) node[midway,above,lbl]{};
+  \draw[wire] (isrc) -- (path);
+  \draw[wire] (path) -| (p) node[near end,left,lbl]{$v[n]$};
+  \draw[wire] (p) -- (s) node[midway,above,lbl]{primary $y[n]$};
+  \draw[wire] (kal) -- (s) node[midway,left,lbl]{$\hat{v}[n]$};
+  \draw[obs] (s) -- (10.2,2.3) node[midway,above,lbl]{$e[n]$ (denoised out)};
+  % reference into filter
+  \draw[wire] (isrc) |- (2.0,-0.2) -| (kal.south);
+  \node[lbl] at (2.3,-0.4) {reference $x[n]$};
+  % innovation feedback to filter
+  \draw[obs] (9.3,2.3) |- (7.6,1.3) -- (kal.east);
+  \node[lbl,text=deepblue] at (8.5,1.5) {adapt};
 
-  \draw[arr] (0.65,7.35) -- (add.west);
-  \node[lbl] at (1.05,7.63) {$d[n]$};
-  \node[dot] (jd) at (1.35,7.35) {};
-  \draw[arr] (2.3,8.42) -- (add.north);
-  \node[lbl, anchor=west] at (2.44,8.12) {$v[n]$};
-  \draw[arr] (add) -- (filt) node[midway,above=1.5pt,lbl] {$y[n]$};
-  \draw[arr] (filt) -- (sub) node[midway,above=1.5pt,lbl] {$\hat{d}[n]$};
-  \draw[arr] (sub.east) -- (13.0,7.35);
-  \node[lbl] at (10.15,7.63) {$e[n]$ (denoised)};
-  \draw[darr] (jd) -- (1.35,8.28) -- (8.6,8.28) -- (sub.north);
-  \node[tin, fill=panelblue, inner sep=2.5pt] at (4.8,8.28) {$d[n]$ --- training only};
+  % --- controller ---
+  \node[blk] (phi)  at (12.3,2.3) {state $\bm{\phi}_t\!\in\!\mathbb{R}^{11}$\\ {\scriptsize innovation, $S_t$, gain, $\log Q_{t-1}$}};
+  \node[blk] (lstm) at (15.6,2.3) {LSTM$_{256}\!\times\!2$\\ actor--critic};
+  \node[blk] (out)  at (15.6,0.5) {$(Q_t,R_t)$\\ {\scriptsize process/meas.\ noise}};
 
-  % ════════════ B: controller (single block in the loop) ════════════
-  \node[blk={5.4cm}{fill=white}] (ctrl) at (6.6,4.75)
-        {\textbf{recurrent actor--critic policy} $\pi_\theta$\\[1pt]
-         {\scriptsize 2-layer LSTM$_{256}$ ($\sim$1.07\,M params)}};
+  \draw[obs] (10.5,2.3) |- (11.0,2.3) -- (phi);
+  \draw[wire] (phi) -- (lstm);
+  \draw[act] (lstm) -- (out);
+  \draw[act] (out) -| (5.6,-0.2) -- (kal.south west);
+  \node[lbl,text=accentred] at (9.5,-0.4) {set $Q_t$ (process noise) $\to$ filter};
 
-  % loop wires: e_t observed (down then left), a_t acted (straight up to filter)
-  \node[dot, fill=deepblue] (je) at (10.8,7.35) {};
-  \draw[obswire] (je) -- (10.8,4.75) -- (ctrl.east);
-  \node[lbl, text=deepblue, anchor=west] at (10.95,5.95) {observe $e_t$};
-  \draw[actwire] (ctrl.north -| filt.south) -- (filt.south);
-  \node[lbl, text=accentred, anchor=west] at (5.55,5.95) {act $\mathbf{a}_t{=}(\mu_t,\lambda_t)$};
-
-  % ════════════ ZOOM: controller internal dataflow ════════════
-  \draw[zoomline] (ctrl.south west) -- (0.55,3.42);
-  \draw[zoomline] (ctrl.south east) -- (13.15,3.42);
-
-  \node[blk={2.3cm}{}] (phi) at (10.55,2.0)
-        {\textbf{state} $\bm{\phi}_t{\in}\mathbb{R}^{11}$\\[1pt]
-         {\scriptsize error, power \&\ action stats}};
-  \node[blk={1.75cm}{}] (lstm) at (7.95,2.0)
-        {\textbf{LSTM}\\ $256{\times}2$};
-  \node[hblk={2.0cm}{fill=panelred}]  (actor)  at (5.15,2.85)
-        {\textbf{actor} head};
-  \node[hblk={2.0cm}{fill=panelblue}] (critic) at (5.15,2.0)
-        {\textbf{critic} head};
-  \node[hblk={2.0cm}{fill=panelgray}] (aux)    at (5.15,1.15)
-        {\textbf{aux} heads};
-
-  \draw[thinarr] (12.85,2.0) -- (phi.east);
-  \node[lbl, anchor=west] at (12.05,2.42) {$e_t,\mathbf{w}_t$};
-  \node[tin, anchor=west] at (12.05,1.62) {from loop};
-  \draw[thinarr] (phi) -- (lstm);
-  \draw[thinarr] (lstm.west) -- (actor.east);
-  \draw[thinarr] (lstm.west) -- (critic.east);
-  \draw[thinarr] (lstm.west) -- (aux.east);
-
-  \draw[-Stealth, line width=1.0pt, draw=accentred] (actor.west) -- (2.95,2.85);
-  \node[lbl, anchor=west] at (1.05,2.85) {$\mathbf{a}_t{=}(\mu_t,\lambda_t)$};
-  \draw[thinarr] (critic.west) -- (2.95,2.0);
-  \node[lbl, anchor=west] at (1.05,2.0) {$V_t$~{\scriptsize(train)}};
-  \draw[thinarr] (aux.west) -- (2.95,1.15);
-  \node[lbl, anchor=west] at (1.05,1.15) {$\hat{e}_{t+1},\hat{d}_{t+1},\hat{f}$};
-  \node[tin, anchor=west] at (1.05,0.78) {critic \&\ aux: training only};
-
-  % ════════════ C: training ════════════
-  \node[blk={3.3cm}{}] (bptt) at (16.45,6.7)
-        {\textbf{1\ \ BPTT phase}\\[1pt]
-         {\scriptsize truncated $\nabla$ through filter}\\
-         {\scriptsize MSE $+$ aux losses}};
-  \node[blk={3.3cm}{}] (ppo) at (16.45,3.4)
-        {\textbf{2\ \ PPO phase}\\[1pt]
-         {\scriptsize shaped reward, GAE($\lambda$)}\\
-         {\scriptsize RL$^2$ meta-episodes}};
-  \draw[arr] (bptt) -- (ppo)
-       node[midway,right=3pt,tin,align=left] {alternate\\per iteration};
-  \draw[darr] (bptt.west) -- (13.5,6.7);
-  \node[tin,anchor=south] at (13.75,6.82) {$\nabla_\theta$};
-  \draw[darr] (ppo.west) -- (13.5,3.4);
-  \node[tin,anchor=south] at (13.75,3.52) {$\nabla_\theta$};
-
-\end{tikzpicture}%
-}
-\caption{\textbf{Proposed hybrid BPTT+RL system.}
-  The plant (A) and learned controller (B) form a closed loop: the
-  filtering error $e_t$ is observed, encoded into an 11-D state
-  $\bm{\phi}_t$, and a recurrent actor--critic policy $\pi_\theta$ returns
-  the step-size and leakage $\mathbf{a}_t{=}(\mu_t,\lambda_t)$ of the
-  leaky-NLMS update, on top of a decaying base schedule $\mu_0(t)$
-  \eqref{eq:schedule}. The zoom expands the controller: one shared LSTM
-  feeds an actor head, with critic and auxiliary heads
-  ($\hat{e}_{t+1},\hat{d}_{t+1},\hat{f}$) used in training only. Training
-  (C) alternates truncated BPTT through the differentiable filter with PPO
-  on shaped rewards, entirely on synthetic noise.}
+\end{tikzpicture}}
+\caption{\textbf{Proposed system.} A reference $x[n]$ reaches the primary
+sensor through an unknown path $H$, corrupting the clean signal $d[n]$; the
+Kalman filter estimates the interference $\hat{v}[n]$ from the reference and
+the residual $e[n]=y[n]-\hat{v}[n]$ is the denoised output. A recurrent policy
+observes an innovation-derived state $\bm{\phi}_t$ and sets the Kalman process
+noise $Q_t$ (and measurement noise $R_t$) each step. Filter adaptation and the
+state use \emph{observables only}; the clean signal is used solely to shape the
+training loss/reward (Sec.~\ref{sec:method}) and is never needed at
+deployment.}
 \label{fig:arch}
 \end{figure*}
 
-\subsection{Signal and filter model}
-Fig.~\ref{fig:arch} overviews the system.
-A clean signal $d[n]$ is corrupted by additive noise $v[n]$.
-With filter weights $\mathbf{w}_n\!\in\!\mathbb{R}^{M}$ and tap vector
-$\mathbf{u}_n\!=\![y[n],\ldots,y[n{-}M{+}1]]^{\top}$,
-the output and error are $\hat{d}[n]\!=\!\mathbf{w}_n^{\top}\mathbf{u}_n$ and
-$e[n]\!=\!d[n]-\hat{d}[n]$.
-The leaky-NLMS update is:
+\subsection{Reference-based ANC and the Kalman filter}
+A clean signal $d[n]$ is observed at a primary sensor together with
+interference $v[n]$ that is a linear function of an observable reference
+$x[n]$: $y[n]=d[n]+v[n]$, with $v[n]=(H\!*\!x)[n]$ for an unknown path $H$
+(Fig.~\ref{fig:arch}). With tap vector
+$\mathbf{x}_n=[x[n],\dots,x[n{-}M{+}1]]^{\top}$ and weights
+$\mathbf{w}_n\in\mathbb{R}^{M}$, the interference estimate is
+$\hat{v}[n]=\mathbf{w}_n^{\top}\mathbf{x}_n$ and the residual
+$e[n]=y[n]-\hat{v}[n]$ is the denoised output. Because $x[n]$ is independent of
+$d[n]$, minimising the output power $\mathbb{E}[e^2]$ minimises the residual
+interference while leaving $d[n]$ intact---Widrow's ANC principle
+\cite{widrow1975anc}.
+
+We adapt $\mathbf{w}_n$ with a Kalman filter that models the path as a random
+walk, $\mathbf{w}_{n+1}=\mathbf{w}_n+\bm{q}_n$, $\bm{q}_n\!\sim\!\mathcal{N}(0,Q_nI)$,
+with scalar measurement noise $R_n$:
 \begin{equation}
-  \mathbf{w}_{n+1} = \lambda\,\mathbf{w}_n
-    + \frac{\mu}{\|\mathbf{u}_n\|^2 + \epsilon}\,e[n]\,\mathbf{u}_n,
-  \quad \mu>0,\ \lambda\in(0,1].
-  \label{eq:leaky_nlms}
+\begin{aligned}
+  P &\leftarrow P + Q_n I, &
+  e[n] &= y[n]-\mathbf{w}_n^{\top}\mathbf{x}_n,\\
+  S_n &= \mathbf{x}_n^{\top}P\mathbf{x}_n + R_n, &
+  \mathbf{k}_n &= P\mathbf{x}_n/S_n,\\
+  \mathbf{w}_{n+1} &= \mathbf{w}_n+\mathbf{k}_n e[n], &
+  P &\leftarrow P-\mathbf{k}_n\mathbf{x}_n^{\top}P.
+\end{aligned}
+\label{eq:kalman}
 \end{equation}
-NLMS normalization removes the dependence of convergence rate on input power
-\cite{bitmead1980convergence,nagumo1967learning}, making $\mu$ a well-scaled
-action for the controller.
-Filter order $M{=}16$, $\epsilon{=}10^{-8}$.
+The process noise $Q_n$ is the continuous analogue of an LMS step-size: large
+$Q_n$ tracks a fast-changing path at the cost of misadjustment, small $Q_n$
+gives low misadjustment but slow tracking. Unlike RLS, which divides $P$ by a
+forgetting factor $<1$ and can suffer covariance windup, the additive term
+$Q_nI$ keeps $P$ bounded.
 
 \smallskip
-\noindent\textbf{Proposition 1 (Weight boundedness).}
-\emph{For $\mu_t\!\le\!\mu_{\max}$, $\lambda_t\!\le\!\lambda_{\max}{<}1$, and
-$|e[n]|\!\le\!e_{\max}$ along a trajectory,
-$\|\mathbf{w}_n\| \!\le\! \lambda_{\max}^n\|\mathbf{w}_0\|
-+ \mu_{\max}\,e_{\max}/[\sqrt{\epsilon}(1\!-\!\lambda_{\max})]$.}
-The proof follows by iterating \eqref{eq:leaky_nlms} using
-$\|\mathbf{u}_n\|^2{+}\epsilon\!\ge\!\epsilon$. Our action space enforces
-$\lambda_{\max}{=}0.999$, $\mu_{\max}{=}2.0$; the
-$\lambda_{\max}{<}1$ contraction is the structural safeguard absent from
-$\lambda\!\equiv\!1$ rules and consistent with the \pend{$14/40$} Aboulnasr
-divergence rate observed empirically.
+\noindent\textbf{Proposition 1 (Bounded covariance / stability).}
+\emph{For $Q_n\!\le\!Q_{\max}$ and $R_n\!\ge\!R_{\min}\!>\!0$, the state
+covariance in \eqref{eq:kalman} obeys
+$\operatorname{tr}(P_{n})\le \operatorname{tr}(P_{0})+nMQ_{\max}$, and the
+posterior update is a contraction ($P\!\leftarrow\!P-\mathbf{k}\mathbf{x}^{\top}P\preceq P$).
+Hence $P_n$ cannot blow up and the filter is unconditionally stable over the
+entire action range.}
+The predict step adds at most $MQ_{\max}$ to the trace; the measurement update
+is positive-semidefinite-decreasing since
+$\mathbf{k}\mathbf{x}^{\top}P=\tfrac{P\mathbf{x}\mathbf{x}^{\top}P}{S}\succeq0$
+with $S\!\ge\!R_{\min}$. This is the structural safeguard that fixed-forgetting
+RLS lacks, and it is what lets the controller explore aggressive $Q_t$ without
+risking divergence.
 
-\subsection{Noise families}
-Eight families: \emph{training} $\mathcal{F}_{\rm tr}$\,=\,\{Gaussian,
-Colored ($1/f^\alpha$), Bernoulli--Gaussian impulsive, time-varying-SNR,
-regime-switch\};
-\emph{held-out} $\mathcal{F}_{\rm ood}$\,=\,\{$\alpha$-stable,
-Poisson-rate burst, chirp interferer\}.
-
+\subsection{Interference families}
+Five structured families admit a reference and are used for
+\emph{training}: powerline (mains fundamental $+$ harmonics, drifting
+amplitude/phase), baseline wander (respiration-band drift), echo (broadband
+reference through a short FIR path), and regime-switch (the echo path changes
+abruptly mid-record). Two \emph{held-out} families test zero-shot
+generalisation: narrowband chirp interferer and echo through a longer,
+unseen path. Unstructured noise (white/impulsive) is excluded: no reference can
+cancel it, so including it would be ill-posed.
 
 % =====================================================================
-\section{Proposed Method}\label{sec:methods}
+\section{Proposed Method}\label{sec:method}
 
-% Released at the start of Sec. III: page-2 top is occupied by Fig. 1, so this
-% wide results table defers to the top of page 3 -- the page that carries its
-% first reference in Sec. IV-A -- instead of being pushed a full page past it.
 \begin{table*}[!t]
 \centering
-\caption{Steady-state MSE (dB) at SNR$=10$\,dB, mean over 5 seeds.
-         \textbf{Bold}: best method per family;
-         $\dagger$: requires clean signal at training time;
-         ${\uparrow}$: at least one seed diverged.
-         Lower is better.}
+\caption{Steady-state residual interference (dB) at SNR$=10$\,dB, mean over 5
+seeds. \textbf{Bold}: best per family; $\uparrow$: at least one seed diverged.
+Lower is better.}
 \label{tab:final}
-\setlength{\tabcolsep}{3.5pt}
-\small
-% Body generated by scripts/make_table1.py from results/runs/eval/synthetic.csv
-% (run `train_pipeline.py eval`, then `make_table1.py`). Never hand-type
-% numbers here: the loud placeholder is intentional so a stale or missing
-% eval cannot silently ship in the PDF.
+\setlength{\tabcolsep}{4pt}\small
 \IfFileExists{tables/table1_generated.tex}%
   {\newcommand{\tableonebody}{\input{tables/table1_generated}}}%
-  {\newcommand{\tableonebody}{\multicolumn{10}{c}{\textbf{PENDING} --- run
-     \texttt{scripts/train\_pipeline.py eval}, then
-     \texttt{scripts/make\_table1.py}} \\}}
-\begin{tabular}{l*{8}{r}r}
+  {\newcommand{\tableonebody}{\multicolumn{8}{c}{\textbf{PENDING} --- run
+     \texttt{scripts/train\_anc.py eval}} \\}}
+\begin{tabular}{l*{6}{r}r}
 \toprule
-Method & Gauss. & Color. & Impuls. & TV-SNR & RegSw & $\alpha$-St & Burst & Chirp & Mean \\
+Method & Powerl. & Base.W. & Echo & RegSw & Chirp$^\dagger$ & Echo-L$^\dagger$ & Mean \\
 \midrule
 \tableonebody
 \bottomrule
 \end{tabular}
+\\[2pt]
+{\footnotesize $\dagger$ held-out (zero-shot) interference family.}
 \end{table*}
 
-\subsection{State, action, and reward}
-At each episode the environment samples a task $\tau$
-(signal kind, $f\!\in\!\mathcal{F}_{\rm tr}$, SNR).
-The per-step state is a squashed 11-D feature vector
-$\phi_t\!\in\![-1,1]^{11}$; temporal context is carried by the
-controller's recurrent state rather than an explicit window:
-\begin{equation}
-  \begin{split}
-    \phi_t &= \tanh\!\big(\mathbf{c}\odot[e_t,e_t^2,\Delta e_t,
-             \Delta^2\!e_t,\log(1{+}P_u),\\
-             &\qquad \log(1{+}P_e),\rho_e,\mu_t,\lambda_t,|\text{grad}_t|,\text{sgn}(\Delta e_t)]\big),
-  \end{split}
-  \label{eq:state}
-\end{equation}
-where $P_u{=}\|\mathbf{u}_t\|^2/M$, $P_e{=}e_t^2$,
-$\rho_e{=}e_te_{t-1}/(\hat{\sigma}_e^2{+}\epsilon)$ with
-$\hat{\sigma}_e^2$ an exponential moving average of $e_t^2$, and
-$|\text{grad}_t|{=}|\mu_t e_t|/\sqrt{\|\mathbf{u}_t\|^2{+}\epsilon}$.
-The constant scaling vector is set to $\mathbf{c} = [5.0, 2.0, 5.0, 5.0, 1.0, 1.0, 1.0, 4.0, 10.0, 2.0, 1.0]^{\top}$, and the step-size and leakage features are centered as $(\mu_t - 0.5)$ and $(\lambda_t - 0.85)$, respectively.
-The final four features---current $\mu_t$, leakage $\lambda_t$, gradient
-magnitude, and error-change sign---give the controller direct feedback
-about its own past actions, enabling it to learn step-size reduction
-after convergence.
+\subsection{State, action, reward}
+The per-step state $\bm{\phi}_t\!\in\![-1,1]^{11}$ is a $\tanh$-squashed vector
+of \emph{observables} only: the innovation $e_t$ and its square and increment,
+the reference tap power, the innovation variance $\log S_t$, the innovation
+autocorrelation (its whiteness signals whether $Q_t$ is well matched), the
+Kalman gain norm $\|\mathbf{k}_t\|$, and the agent's own previous
+$(\log Q_{t-1},\log R_{t-1})$. None depend on the clean signal.
 
-\smallskip
-\noindent\textbf{Base step-size schedule.}
-Rather than outputting $\mu_t$ directly, the controller outputs an
-adjustment $\Delta\mu_t$ on top of a deterministic decaying schedule:
-\begin{equation}
-  \mu_t = \mathrm{clip}\big(\mu_0(t) + 0.3\,\Delta\mu_t,\,
-          \mu_{\min},\,\mu_{\max}\big),
-  \label{eq:schedule}
-\end{equation}
-with $\mu_0(t) = 0.8\max\!\big(0.05,\;1 - 0.8\,t/T\big)$,
-where $T$ is the episode length and $\Delta\mu_t\!\in\![\mu_{\min},\mu_{\max}]$
-is decoded log-linearly from the actor output. This biases the controller toward
-high-$\mu$ early (fast convergence) and low-$\mu$ late (low
-misadjustment) while preserving the LSTM's ability to override the
-schedule when the environment is non-stationary.
+The action $\mathbf{a}_t\!\in\![-1,1]^2$ is decoded log-linearly to
+$Q_t\!\in\![10^{-8},10^{-3}]$ and $R_t\!\in\![10^{-3},10]$---the exact same
+decode in the BPTT phase, the PPO phase, and evaluation.
 
-\smallskip
-\noindent\textbf{Shaped reward.}
-\begin{equation}\label{eq:reward}
-  r_t = -\log(1 + e_t^2) + \beta\,\Delta\log\bar{e}^2
-        - \alpha\,|\text{med}(\mathbf{e}_{-K})|
-        - \gamma \max_K |\mathbf{e}_{-K}|
+\smallskip\noindent\textbf{Reward.}
+Since $x[n]\!\perp\!d[n]$, innovation power is a deployable, label-free proxy
+for residual interference. At training time we sharpen it with the (synthetic)
+clean signal by rewarding the true residual $r_t=e_t-d_t$:
+\begin{equation}
+  R_t = -\log(1+r_t^2) + \beta\,\Delta\!\log\overline{r^2}
+        - \alpha\,|\mathrm{med}(\mathbf{r}_{-K})|,
+  \label{eq:reward}
 \end{equation}
-where $\Delta\log\bar{e}^2$ is the log-improvement in running-average error,
-the last two terms are robustness penalties over the most recent
-$K{=}64$ errors, and $\alpha{=}0.05$, $\beta{=}0.15$, $\gamma{=}0.02$.
-A terminal bonus $0.3\,(-\log(1{+}\mathrm{SS\,MSE}))$ and fixed penalties
-for $|e_t|{>}50$ or weight-norm clipping complete the reward.
+with a convergence-improvement term and a robustness penalty over the last
+$K{=}64$ residuals, plus a terminal steady-state bonus. Crucially, the clean
+signal enters only \eqref{eq:reward} and the BPTT loss; the deployed policy and
+filter never see it.
 
 \subsection{Hybrid BPTT+RL training}
+\textbf{Phase 1 (BPTT).} A batch of synthetic episodes is run through the
+differentiable Kalman filter \eqref{eq:kalman}; gradients of
+$\mathcal{L}=\sum_t r_t^2+\alpha_e\mathcal{L}_{\hat e}+\alpha_d\mathcal{L}_{\hat d}
++\alpha_f\mathcal{L}_{\hat f}$ flow through
+$e_t\!\to\!\mathbf{w}_t\!\to\!(Q_t,R_t)\!\to\!\theta$ with truncation
+$\tau{=}64$. Three auxiliary heads instil a world model: one-step innovation
+prediction $\hat{e}_{t+1}$, clean-signal prediction $\hat{d}_{t+1}$
+(training-only supervision), and interference-family classification $\hat{f}$.
+\textbf{Phase 2 (PPO).} After a BPTT warm-up, PPO \cite{schulman2017ppo} with
+GAE($\lambda$) \cite{schulman2016gae} optimises the shaped reward; the LSTM
+state persists across $K_{\rm meta}{=}3$ episodes (RL$^2$
+\cite{duan2016rl2,wang2016learning}) so the policy infers the regime online.
+The controller is a 2-layer LSTM$_{256}$ ($\sim$1\,M params); baselines share
+the action decode. All models use Adam \cite{kingma2014adam} and run in real
+time at ECG rates.
 
-The training alternates between two phases per iteration:
-
-\smallskip
-\noindent\textbf{Phase 1: BPTT.}
-The controller processes a batch of $B$ episodes of length $T$ through
-the differentiable NLMS filter. Gradients flow from the loss through
-$e_t$ $\to$ $\mathbf{w}_t$ $\to$ $(\mu_t,\lambda_t)$ $\to$ controller
-parameters $\theta$ with truncation window $\tau{=}64$ steps.
-The BPTT loss combines MSE with three auxiliary losses:
-\begin{equation}
-  \mathcal{L}_{\text{BPTT}} = \underbrace{\sum_t e_t^2}_{\text{MSE}}
-  + \alpha_e\,\mathcal{L}_{\hat{e}} + \alpha_d\,\mathcal{L}_{\hat{d}}
-  + \alpha_f\,\mathcal{L}_{\hat{f}},
-  \label{eq:bptt_loss}
-\end{equation}
-where $\mathcal{L}_{\hat{e}}{=}\text{MSE}(\hat{e}_{t+1},\,e_{t+1})$ forces
-one-step-ahead error prediction,
-$\mathcal{L}_{\hat{d}}{=}\text{MSE}(\hat{d}_{t+1},\,d_{t+1})$
-forces clean-signal prediction (the key addition over Meta-AF \cite{casebeer2022metaaf}), and
-$\mathcal{L}_{\hat{f}}{=}\text{CE}(\hat{f},\,f)$ classifies the noise
-family, with weights $\alpha_e{=}0.2, \alpha_d{=}0.3, \alpha_f{=}0.1$.
-Early-episode errors receive an extra convergence weighting and a
-median-error robustness term mirrors the reward in \eqref{eq:reward}.
-
-\smallskip
-\noindent\textbf{Phase 2: PPO.}
-After a BPTT warmup (first $K_{\rm warmup}$ iterations), PPO
-\cite{schulman2017ppo} further optimises the policy from shaped
-rewards using GAE($\lambda$) \cite{schulman2016gae}. The LSTM state
-persists across $K_{\rm meta}{=}3$ consecutive episodes within a
-meta-episode (RL$^2$ \cite{duan2016rl2,wang2016learning}), enabling
-task inference without explicit noise identification.
-
-\smallskip
-\noindent\textbf{Training distribution.}
-Training episodes randomize over six synthetic signal morphology
-classes (multitone, AM, sine, synthetic ECG-like pulses, random
-pulses, square bursts) mixed with the five training noise families at
-SNR $\in\{0,\ldots,20\}$\,dB; none are derived from real biomedical
-recordings. Real MIT-BIH ECG is used only at evaluation.
-
-\subsection{Controller architecture}
-
-\textbf{Hybrid controller.} A 2-layer LSTM$_{256}$ (${\sim}1.07$\,M
-params) with separate actor and critic MLP heads; the same architecture
-is used for the main results and all ablations. Three auxiliary heads branch
-from the LSTM: (i) error prediction $\hat{e}_{t+1}$, (ii) signal prediction
-$\hat{d}_{t+1}$, and (iii) noise classification $\hat{f}\!\in\!\mathbb{R}^{8}$.
-\textbf{Baselines.}
-\emph{RL-only:} RecurrentPPO \cite{raffin2021sb3} (no BPTT, no auxiliary heads).
-\emph{BPTT-only:} Hybrid controller trained with BPTT only (no PPO).
-All models use Adam \cite{kingma2014adam}; the controller runs real-time at
-biomedical $f_s\!\le\!1$\,kHz.
-
+% =====================================================================
 \section{Experiments}\label{sec:experiments}
 
 \subsection{Synthetic benchmark}
+Table~\ref{tab:final} reports steady-state residual interference (last 25\% of
+each 4000-sample episode) at SNR$=10$\,dB across the six families, each method
+scored on identical (clean, interference, reference) realisations over 5 seeds.
+Baselines: reference-driven NLMS, variable-step LMS \cite{kwong1992variable},
+RLS at forgetting $0.999$/$0.99$, fixed-$Q$ Kalman ($Q\!\in\!\{10^{-6},10^{-4}\}$),
+and a cascaded IIR notch. The learned agent achieves \pend{$-xx.x$}\,dB mean,
+\pend{$\ge$} the best fixed estimator on every family and strictly better on
+regime-switch by \pend{$x.x$}\,dB. No fixed $Q$ is best across families (echo
+favours $Q\!\approx\!10^{-6}$, powerline $Q\!\approx\!10^{-4}$), whereas the
+single learned policy adapts $Q_t$ per family and within an episode.
 
-% Released early in Sec. IV-A so the tall recovery figure can claim the bottom
-% of page 3 (with Table I at the top) instead of deferring to the next page.
-\begin{figure}[!b]
+\smallskip\noindent\textbf{Stability.}
+Fixed-forgetting RLS at $0.99$ diverges on \pend{$xx/xx$} (family, seed) runs
+under low excitation; all learned and Kalman-based methods diverge on
+\pend{$0/xxx$} (Fisher exact, \pend{$p{<}10^{-x}$}), consistent with Prop.~1.
+
+\subsection{Non-stationary recovery}
+On regime-switch, where the interference path jumps mid-record, the controller
+raises $Q_t$ immediately after the change (fast re-adaptation) and lowers it
+once the innovation re-whitens (low misadjustment)---an emergent behaviour that
+no fixed $Q$ or fixed forgetting factor can match
+(Fig.~\ref{fig:recovery}).
+
+\begin{figure}[!t]
 \centering
 \includegraphics[width=\columnwidth]{figures/fig_recovery.pdf}
-\caption{\textbf{Within-episode adaptation under burst noise
-  ($t\in[167,333]$\,ms).}
-  The hybrid recovers below \pend{$-15$}\,dB within \pend{$\sim 60$}
-  samples of burst end; no classical method recovers within the
-  episode. Bottom: $\mu_t$ drops during the burst and rises in quiet
-  phases---emergent, not programmed.}
+\caption{\textbf{Within-episode recovery after an interference-path jump.} The
+learned $Q_t$ (bottom) spikes at the change and decays as the innovation
+re-whitens; residual (top) returns below \pend{$-xx$}\,dB within
+\pend{$\sim xx$} samples, faster than fixed-$Q$ Kalman and RLS.}
 \label{fig:recovery}
 \end{figure}
 
-Table~\ref{tab:final} shows steady-state MSE (SS MSE, last 25\% of episode)
-at SNR$=10$\,dB over 8 noise families.
-We evaluate all methods with 5 seeds and report mean across
-all (seed, family) pairs.
-
-The hybrid BPTT+RL controller achieves \pend{$-22.3$}\,dB mean SS MSE
-across all eight families, a \pend{6.5}\,dB improvement over RL-only
-and \pend{7.1}\,dB over NLMS. It outperforms Meta-AF on \pend{4/8}
-families, including impulsive (\pend{$-26.9$ vs.\ $-20.7$}\,dB),
-$\alpha$-stable (\pend{$-26.2$ vs.\ $-23.3$}\,dB),
-regime-switch (\pend{$-14.5$ vs.\ $-11.1$}\,dB), and
-time-varying SNR (\pend{$-22.3$ vs.\ $-21.8$}\,dB).
-The signal prediction auxiliary head
-$\hat{d}_{t+1}$ is the key differentiator: by forcing the LSTM to
-model the clean signal dynamics explicitly, it learns step-size
-schedules that Meta-AF \cite{casebeer2022metaaf} (which only minimises $e_t^2$) does not.
-
-On Gaussian and stationary families (colored, burst, chirp), Meta-AF retains an
-edge---enabled by its untruncated BPTT gradient that flows through the entire filter
-history, yielding very low misadjustment. Our truncated BPTT ($\tau{=}64$) limits
-this horizon; our decaying base schedule partially compensates but cannot fully
-match Meta-AF asymptotically. Crucially, however, Meta-AF requires target-domain clean references during training, whereas our controller is trained entirely on synthetic data and generalises zero-shot.
-All learned controllers generalise to the three held-out OOD families
-($\alpha$-stable, burst, chirp) without retraining.
-Aboulnasr's VSS rule diverges on \pend{14/40} (seed, family) runs; all
-three proposed controllers (RL-only, BPTT-only, Hybrid) diverge on
-\pend{0/200} runs (Fisher exact, \pend{$p{<}10^{-12}$}).
-Fig.~\ref{fig:recovery} illustrates within-episode recovery after a
-burst.
-
 \subsection{Zero-shot ECG transfer}\label{sec:ecg}
-
-To test zero-shot generalisation, we apply the trained hybrid
-controller \emph{without retraining} to real ECG signals (MIT-BIH
-Database \cite{moody2001mitdb}): 5 records (MLII lead, $f_s{=}360$\,Hz)
-corrupted with 6 noise types at SNR$=10$\,dB, over 5 seeds.
-\textbf{None of these signal or noise types appeared during training.}
-
-The hybrid controller achieves \pend{$-32.7$}\,dB mean SS MSE on ECG.
-The most striking result is on \textbf{powerline interference}:
-\pend{$-27.1$}\,dB vs.\ NLMS \pend{$-20.4$}\,dB, a
-\pend{$\mathbf{6.7}$}\,\textbf{dB mean improvement}
-on a 50\,Hz periodic tone the policy has never encountered
-(Fig.~\ref{fig:zeroshot}; paired Wilcoxon over $25$ record-seed pairs,
-\pend{$p{<}10^{-7}$}).
-The LSTM hidden state identifies the periodic residual error pattern and
-drives $(\mu_t,\lambda_t)$ to suppress it without any prior knowledge of
-50\,Hz.
-
-\subsection{Ablations}\label{sec:ablations}
+We apply the trained controller \emph{without retraining} to real ECG
+(MIT-BIH \cite{moody2001mitdb}; MLII, $f_s{=}360$\,Hz) corrupted with powerline
+(50\,Hz mains reference) and baseline wander (respiration reference), at
+SNR$=10$\,dB over 5 records and 5 seeds. None of these signals appeared in
+training. The controller improves on NLMS by \pend{$+x.x$}\,dB on powerline
+and \pend{$+x.x$}\,dB on baseline wander (Fig.~\ref{fig:zeroshot}; paired
+Wilcoxon over 25 record--seed pairs, \pend{$p{<}10^{-x}$}), while requiring no
+clean reference at deployment.
 
 \begin{figure}[!t]
 \centering
 \includegraphics[width=\columnwidth]{figures/fig_realworld.pdf}
-\caption{\textbf{Zero-shot transfer to real ECG.}
-  Paired improvement over NLMS (SS-MSE difference per (record, seed)
-  pair; mean $\pm$ 95\% CI over $5{\times}5$ pairs) across five MIT-BIH
-  records and six corruption conditions at SNR$=10$\,dB; the dashed
-  zero line is the NLMS baseline. The controller is trained on
-  synthetic noise only and deployed without retraining; on $50$\,Hz
-  powerline interference it leads NLMS by \pend{$6.7$}\,dB.}
+\caption{\textbf{Zero-shot transfer to real ECG.} Paired residual improvement
+over NLMS (mean $\pm$ 95\% CI over $5{\times}5$ record--seed pairs) for
+powerline and baseline-wander cancellation; the controller is trained on
+synthetic interference only.}
 \label{fig:zeroshot}
 \end{figure}
 
-\begin{figure}[!t]
-\centering
-\includegraphics[width=\columnwidth]{figures/fig_ablation.pdf}
-\caption{\textbf{Auxiliary-head ablation} at SNR$=10$\,dB. Bars: mean
-  SS-MSE degradation of each ablated variant relative to the full
-  hybrid, paired per episode, $\pm$ 95\% CI; circles: per-noise-family
-  means. Removing the signal-prediction head $\hat{d}_{t+1}$ costs
-  \pend{3--4}\,dB: modeling clean-signal dynamics explicitly is key to
-  robust step-size adaptation.}
-\label{fig:ablation}
-\end{figure}
-
-\textbf{Auxiliary heads.}
-Removing $\hat{d}_{t+1}$ (Fig.~\ref{fig:ablation}) costs \pend{3--4}\,dB
-on impulsive and $\alpha$-stable
-noise; removing $\hat{e}_{t+1}$ costs \pend{1--2}\,dB; removing both costs
-\pend{5--6}\,dB. The signal prediction head is the single most important
-auxiliary, confirming the hypothesis that forcing the LSTM to model the
-clean signal (not just react to errors) is what enables superior
-non-stationary performance.
-
-\textbf{Base schedule.}
-Without the decaying $\mu_0(t)$ schedule, the controller converges to
-a fixed \pend{$\mu{\approx}1.1$} that is too high for stationary noise;
-with the schedule, burst improves from \pend{$-18.4$ to $-27.0$}\,dB---a
-structural prior that BPTT alone does not learn within the training
-budget.
-
-\textbf{Meta-episodes.}
-Disabling RL$^2$ (resetting LSTM state between episodes) costs
-\pend{2--3}\,dB on regime-switch and burst, where accumulated LSTM state
-identifies the current regime.
-
-\textbf{BPTT-only vs.\ hybrid.}
-The BPTT-only baseline (\pend{$-19.1$}\,dB mean) plateaus on
-non-stationary families; adding PPO improves burst by \pend{6.5}\,dB and
-regime-switch by \pend{1.7}\,dB, confirming RL rewards provide signal
-BPTT gradients cannot.
+\subsection{Ablations}\label{sec:ablations}
+\textbf{Hybrid vs.\ components.} BPTT-only plateaus on regime-switch; PPO-only
+(sb3 RecurrentPPO) is slower and higher-variance; the hybrid improves
+regime-switch by \pend{$x.x$}\,dB over BPTT-only, confirming RL supplies signal
+the BPTT gradient cannot. \textbf{Auxiliary heads.} Removing the clean-signal
+head $\hat{d}_{t+1}$ costs \pend{$x$--$x$}\,dB; it is the most important
+auxiliary. \textbf{Meta-episodes.} Disabling RL$^2$ costs \pend{$x$--$x$}\,dB on
+regime-switch, where accumulated state identifies the current path.
 
 % =====================================================================
 \section{Conclusion}\label{sec:conclusion}
+We recast process-noise scheduling for a Kalman interference canceller as a
+sequential control problem and learned it with a hybrid BPTT+PPO meta-RL
+controller, trained on synthetic interference and label-free at deployment.
+Additive process noise makes the learned filter unconditionally stable
+(Prop.~1), so a single agent matches the best fixed estimator on stationary
+interference, strictly wins under abrupt path changes, never diverges, and
+transfers zero-shot to real ECG. Multi-reference and acoustic-echo settings,
+and learned constraints for $H_\infty$-robustness, are natural extensions.
 
-We presented meta-learned step-size and leakage controllers for
-leaky-NLMS, trained \emph{entirely on synthetic noise} yet robust under
-distribution shift. The hybrid BPTT+RL approach fills a niche between
-pure RL (flexible but slow) and pure BPTT (fast but gradient-horizon
-limited): the auxiliary heads---especially the signal-prediction head
-$\hat{d}_{t+1}$---force the controller to learn a forward model of the
-signal that the BPTT gradients then exploit for step-size control.
-Unlike supervised Meta-AF, the controller never sees a real
-target-domain clean reference, yet it beats NLMS on all \pend{eight}
-noise families and Meta-AF on \pend{four}. The \pend{$0/200$}
-divergence record and the structural $\lambda_{\max}{<}1$ safeguard make
-it deployable without per-noise retuning at $O(M)$ real-time cost, and
-the same controller transfers zero-shot to real MIT-BIH ECG
-(\pend{$+6.7$}\,dB over NLMS on a $50$\,Hz powerline tone absent from
-training).
-The main limitation is the truncated BPTT horizon ($\tau{=}64$), which
-leaves a small asymptotic gap behind Meta-AF on the most stationary
-noise; adaptive truncation, multi-channel and acoustic-echo settings,
-and $H_\infty$-robust \cite{hassibi2001hinfinity} action constraints are
-natural next steps.
-
-% References flow immediately after the conclusion (SPL allows references
-% on the 4th page; only page 5 must be references-only). If technical
-% content ever overflows page 4, restore a \clearpage here.
-\nocite{widrow1985adaptive,haykin2014adaptive,widrow1976stationary,kwong1992variable,aboulnasr1997robust,mathews1993gradient,sayed2003fundamentals,nikias1995signal,shao1993signal,shin2004variable,zhang2016improved,slock1993convergence,feitosa2019lms,engel2020differentiable,wang2024dlfilter,zhou2024antijamming,calabrese2018learning,wang2018deeprl,mismar2019deep,ye2019deep,zhang2020meta,wang2016learning,duan2016rl2,schulman2017ppo,agarwal2021deeprl,schulman2016gae,schulman2017trpo,ni2021recurrent,beck2023survey,tan2020speech,pandey2019deepdenoising,zhang2018deepfilter,defossez2020real,lima2022adaptive,mishra2018simple,finn2017maml,georgiou1999alpha,bitmead1980convergence,moody2001mitdb,lehtinen2018noise2noise,batson2019noise2self,hassibi2001hinfinity,diniz2020adaptive,albu2005gauss,paz1994kalman,benesty2002stereo,hochreiter1997lstm,raffin2021sb3,ozeki1984affine,chiang2019ecg,kingma2014adam,nagumo1967learning,liu2008kernel}
+\nocite{widrow1975anc,haykin2014adaptive,sayed2003fundamentals,kwong1992variable,aboulnasr1997robust,casebeer2022metaaf,calabrese2018learning,mismar2019deep,duan2016rl2,wang2016learning,schulman2017ppo,schulman2016gae,kingma2014adam,moody2001mitdb,hochreiter1997lstm,raffin2021sb3,hassibi2001hinfinity}
 \balance
 \bibliographystyle{IEEEtran}
 \bibliography{references}

@@ -1,172 +1,131 @@
-# Meta-Learned Step-Size and Leakage Control for Robust Adaptive Filtering
+# Meta-RL Control of a Kalman Filter for Robust Interference Cancellation
 
-Code for the paper *"Meta-Learned Step-Size and Leakage Control for Robust
-Adaptive Filtering"* — Meraj Hossain Promit, Maria Akter Jitu, Chandak Chakma
-(under submission, IEEE Signal Processing Letters).
+Code for *"Meta-Reinforcement Learning of Kalman Process Noise for Robust
+Adaptive Interference Cancellation"* — Meraj Hossain Promit, Maria Akter Jitu,
+Chandak Chakma (under submission, IEEE Signal Processing Letters).
 
-We meta-learn a recurrent controller that drives the **step-size $\mu_t$** and
-**leakage $\lambda_t$** of a leaky-NLMS filter. It is trained **entirely on
-synthetic noise** (no clean target needed at deployment) and transfers
-**zero-shot** to real MIT-BIH ECG. All numbers, tables, and figures in the
-paper are regenerated end-to-end by the pipeline below — nothing is
-hand-typed (Table I is `\input` from `scripts/make_table1.py` output; the
-ECG statistics come from `scripts/ecg_stats.py`).
+We learn a recurrent policy that sets the **process noise $Q_t$** (and
+measurement noise $R_t$) of a **Kalman adaptive filter** performing
+**reference-based interference cancellation**. The controller is trained by a
+hybrid of truncated BPTT through the differentiable Kalman filter **+** PPO
+(RL² meta-episodes), entirely on synthetic interference, and transfers
+**zero-shot** to real MIT-BIH ECG.
 
-## ⚠ Status (2026-07-05)
+## Why this is sound (the key design invariant)
 
-- A code review found and fixed two bugs in the hybrid trainer's PPO phase
-  (rollout obs/action misalignment; GAE done-mask off by one). **Any
-  `hybrid_seed*` or `results/ablations/` checkpoint trained before
-  2026-07-04 is invalid — retrain them.** BPTT-only, RL-only (sb3's own
-  PPO), and Meta-AF checkpoints are unaffected.
-- The GAE mask in `src/agents/hybrid_trainer.py` is `1 - dones[t]` and that
-  is **correct** for this buffer (`dones[t]=1` = episode ended *at* step t);
-  do not "fix" it to the CleanRL-style `dones[t+1]`.
-- Eval episodes are crc32-seeded (`train_pipeline._episode_rng`) and shared
-  by every script, so all methods score on identical realizations and runs
-  are reproducible across machines/processes.
-- The paper compiles with a loud **PENDING** row in Table I until
-  `train_pipeline.py eval` + `make_table1.py` have produced fresh numbers.
+The filter cancels interference using a **reference** correlated with the
+interference but independent of the clean signal:
 
----
+```
+primary[n]   = clean[n] + interference[n]      (observable sensor)
+reference[n] = correlated interference source   (observable)
+ŷ[n]         = wₙᵀ · reference-window           (Kalman estimate of interference)
+e[n]         = primary[n] − ŷ[n]  ≈ clean[n]    (denoised output AND adaptation error)
+```
+
+**Filter adaptation and the policy state use observables only** (`reference`,
+`primary`, innovation `e`, Kalman gain, innovation variance). The **clean
+signal is used only to shape the training loss/reward** (synthetic, train-time
+only) — never at deployment. This is what makes the "no clean reference at
+deployment / zero-shot on real ECG" claim actually true.
+
+Because the Kalman predict step adds bounded process noise (`P ← P + QI`), the
+filter is **unconditionally stable** — no covariance windup, unlike
+fixed-forgetting RLS.
+
+> **Scope:** reference-based ANC only applies to *structured* interference that
+> admits a reference (powerline, baseline wander, echo, narrowband). White /
+> impulsive / α-stable noise is intentionally excluded — no reference can
+> cancel it.
 
 ## What is ours vs. what is compared
 
-**Our method (this work)** — `src/agents/`
-| Name | What it is |
-|------|------------|
-| **Hybrid BPTT+RL (ours)** | The main controller. Truncated BPTT through a differentiable NLMS **+** PPO (RL² meta-episodes), with 3 auxiliary heads (error / signal / noise-class prediction). Trained label-free. Used for the zero-shot ECG transfer. |
-| **BPTT-only (ours)** | Ablation of the above — same controller trained with BPTT only (no PPO). |
-| **RL-only** | Ablation — sb3 RecurrentPPO with the same action decode (shares `train_pipeline.RL_ENV_KW`), no BPTT, no auxiliary heads. |
+**Ours** — `src/agents/kalman_trainer.py` (hybrid BPTT+PPO), driving
+`src/filters/diff_kalman.py` (differentiable Kalman filter, action = `(Q,R)`).
+Ablations: **BPTT-only** and **RL-only** (sb3 RecurrentPPO on the ANC env).
 
-**Baselines we compare against** — `src/filters/`
-- **Classical:** NLMS, RLS, VSS-LMS (Kwong / Aboulnasr / Mathews), PID-NLMS,
-  Fixed-Leaky NLMS, IIR-Notch, Heuristic μ-scheduler.
-- **Supervised:** **Meta-AF** (`src/filters/meta_af.py`) — back-propagates
-  through a differentiable filter but **requires the clean signal at training
-  time** (we do not).
+**Baselines** — `src/filters/anc_baselines.py`: reference-driven NLMS,
+variable-step LMS, RLS (fixed forgetting — shows divergence at low ff),
+fixed-Q Kalman, cascaded IIR-notch.
 
-Noise families: train = {gaussian, colored, impulsive, time-varying,
-regime-switch}; held-out OOD = {α-stable, burst, chirp interferer}.
-
----
+**Interference families** — `src/interference/families.py`:
+train = {powerline, baseline_wander, echo, regime_switch};
+held-out (zero-shot) = {narrowband_chirp, echo_long}.
 
 ## Repository layout
 
 ```
-rl-adaptive-filtering/
-├── src/
-│   ├── agents/
-│   │   ├── controller.py          # LSTM / Hybrid / Transformer controllers (OURS)
-│   │   └── hybrid_trainer.py      # Hybrid BPTT+RL training engine (OURS)
-│   ├── filters/
-│   │   ├── base.py                # AdaptiveFilter ABC + windowize()
-│   │   ├── lms.py                 # LMS, NLMS, VSS variants, LMP, schedulers
-│   │   ├── rls.py  notch.py  pid.py  fixed_leakage_nlms.py   # classical baselines
-│   │   ├── meta_af.py             # Meta-AF supervised baseline (compared)
-│   │   └── diff_filter.py         # differentiable leaky-NLMS for BPTT
-│   ├── envs/adaptive_filter_env_v2.py   # Gymnasium env (μ, λ actions)
-│   ├── signals/generators.py      # multitone, AM, sine, ECG-like, pulses, bursts
-│   ├── noise/families.py          # all 8 noise families
-│   └── eval/metrics.py            # steady-state MSE, convergence time
-├── scripts/
-│   ├── train_pipeline.py          # phase-aware: [hybrid|bptt|rl|eval]; shared configs (hybrid_cfg, RL_ENV_KW) + crc32 episode seeding
-│   ├── train_meta_af.py           # train the supervised Meta-AF baseline
-│   ├── benchmark.py               # evaluate any set of methods (synthetic + ECG)
-│   ├── run_ablations.py           # train/eval the 6 ablation variants (Fig. 4)
-│   ├── make_table1.py             # synthetic.csv -> paper/tables/table1_generated.tex
-│   ├── ecg_stats.py               # paired Wilcoxon for the ECG claims
-│   ├── paper_plots.py             # shared figure style (single source)
-│   └── fig_recovery.py  fig_realworld.py  fig_ablation.py  fig_convergence.py
-├── tests/                         # pytest: env, filters, signals/noise
-├── results/                       # CSVs kept; results/runs/ and *.pt are gitignored
-├── pyproject.toml  requirements.txt  LICENSE  README.md
+src/
+├── interference/families.py     # (interference, reference) generators — the ANC task
+├── filters/
+│   ├── diff_kalman.py           # differentiable Kalman filter, action=(Q,R)  (core)
+│   └── anc_baselines.py         # NLMS / VSS / RLS / fixed-Q Kalman / notch baselines
+├── envs/anc_kalman_env.py       # Gymnasium ANC env (observable state, (Q,R) action)
+├── agents/
+│   ├── kalman_trainer.py        # hybrid BPTT+PPO trainer  (OURS)
+│   └── controller.py            # LSTM actor-critic + aux heads (reused)
+└── signals/generators.py        # clean signal morphologies
+scripts/
+├── train_anc.py                 # pipeline: [hybrid|bptt|rl|eval]
+└── make_table1_anc.py           # eval CSV -> paper/tables/table1_generated.tex
+paper/paper.tex  paper/references.bib
 ```
 
-> Large run artefacts (`results/runs/`, `*.pt`, `*.zip`) and generated paper
-> assets (figures, `paper/tables/table1_generated.tex`) are gitignored —
-> regenerate them with the scripts below. `paper/paper.tex` is tracked.
-
----
+> The older supervised noisy→clean code (`adaptive_filter_env_v2.py`,
+> `hybrid_trainer.py`, `noise/families.py`, `meta_af.py`) is **deprecated** —
+> it drove the LMS update with the clean signal at test time, which is why the
+> paper was redesigned. Kept for reference only; not used by `train_anc.py`.
 
 ## Setup
 
 ```bash
 python3 -m venv .venv && source .venv/bin/activate
-pip install -r requirements.txt
-pip install -e .
+pip install -r requirements.txt && pip install -e .
 ```
-Python 3.10, PyTorch 2.x, stable-baselines3 + sb3-contrib. **A GPU is strongly
-recommended** — full training is 2000 iterations (~13 s/iter on a 5070 Ti)
-and is impractical on CPU. The single architecture used everywhere is the
-2-layer LSTM-256 (~1.07M params), set by `LSTM_HIDDEN` / `N_LSTM_LAYERS` in
-`scripts/train_pipeline.py`.
+Python 3.10, PyTorch 2.x, stable-baselines3 + sb3-contrib. GPU strongly
+recommended (full training is 2000 iterations).
 
----
-
-## Reproduce (full paper pipeline, in order)
+## Reproduce
 
 ```bash
-# 1. (compared) train the supervised Meta-AF baseline  -> results/meta_af/meta_af.pt
-PYTHONPATH=. python scripts/train_meta_af.py --n-iters 3000
+# 1. train our controller + ablations (resume-capable)
+PYTHONPATH=. python scripts/train_anc.py hybrid   # -> results/runs/anc_hybrid_seed42
+PYTHONPATH=. python scripts/train_anc.py bptt      # ablation: BPTT only
+PYTHONPATH=. python scripts/train_anc.py rl        # ablation: PPO only (sb3)
 
-# 2. train our controllers (each phase resumes/skips if already complete)
-PYTHONPATH=. python scripts/train_pipeline.py hybrid   # -> results/runs/hybrid_seed42
-PYTHONPATH=. python scripts/train_pipeline.py bptt     # -> results/runs/bptt_seed42
-PYTHONPATH=. python scripts/train_pipeline.py rl       # -> results/runs/rl_seed42
+# 2. eval everything on shared episodes -> results/runs/eval_anc/synthetic.csv
+PYTHONPATH=. python scripts/train_anc.py eval
 
-# 3. synthetic eval on shared episodes -> results/runs/eval/synthetic.csv
-PYTHONPATH=. python scripts/train_pipeline.py eval
+# 3. Table I -> paper/tables/table1_generated.tex (paper.tex \inputs this)
+PYTHONPATH=. python scripts/make_table1_anc.py
 
-# 4. Table I -> paper/tables/table1_generated.tex (paper.tex \inputs this)
-PYTHONPATH=. python scripts/make_table1.py
-
-# 5. ECG eval (needs internet: wfdb streams MIT-BIH from PhysioNet).
-#    Method names must be EXACTLY these — fig_realworld.py / ecg_stats.py
-#    validate them and fail loudly otherwise.
-PYTHONPATH=. python scripts/benchmark.py --skip-synthetic \
-    --out-dir results/runs/eval \
-    --hybrid-models "Hybrid (ours)=results/runs/hybrid_seed42/controller_final.pt" \
-    --rl-models "RL-only=results/runs/rl_seed42/rl_seed42_final.zip" \
-    --meta-af-path results/meta_af/meta_af.pt
-PYTHONPATH=. python scripts/ecg_stats.py         # paired Wilcoxon for Sec. IV-B
-
-# 6. ablations (6 variants, ~4 h each) -> results/ablations/ablation_eval.csv
-PYTHONPATH=. python scripts/run_ablations.py train
-PYTHONPATH=. python scripts/run_ablations.py eval
-
-# 7. paper figures (each fails loudly if its data/checkpoint is missing)
-PYTHONPATH=. python scripts/fig_realworld.py     # zero-shot ECG transfer
-PYTHONPATH=. python scripts/fig_ablation.py      # auxiliary-head ablation
-PYTHONPATH=. python scripts/fig_recovery.py      # within-episode burst recovery
+# 4. paper figures (need the trained checkpoint; ECG figure needs internet)
+PYTHONPATH=. python scripts/fig_recovery_anc.py \
+    --model results/runs/anc_hybrid_seed42/controller_final.pt
+PYTHONPATH=. python scripts/fig_realworld_anc.py \
+    --model results/runs/anc_hybrid_seed42/controller_final.pt
 ```
 
-> **Note:** model checkpoints (`*.pt`, `*.zip`) are gitignored, so after cloning
-> on a fresh machine you must retrain (step 1–2) before the benchmark/figures
-> have models to load.
+The paper compiles with a loud **PENDING** row in Table I until step 2–3 have
+produced fresh numbers; all empirical values in `paper.tex` are wrapped in
+`\pend{}` (render orange) until verified.
 
----
+### Running training on a remote GPU (no manual file juggling)
 
-## Key design choices
-
-| Item        | Setting |
-|-------------|---------|
-| Sampling    | 360 Hz native (matches MIT-BIH; no resample at eval) |
-| Filter      | Leaky-NLMS, order M = 16, ε = 10⁻⁸ |
-| Actions     | log-scaled μ ∈ [0.005, 2.0], λ ∈ [0.80, 0.999]; decaying base-μ schedule shared by BPTT/PPO/eval (`diff_filter.mu_base_schedule`) |
-| State       | 11 features per step (state_window = 1), tanh-scaled |
-| Controller  | LSTM 256×2 (~1.07M params) + actor/critic + 3 auxiliary heads |
-| Training    | alternating truncated BPTT (τ = 64) + PPO (GAE-λ) from iter 400, RL² meta-episodes (K = 3) |
-| Eval metric | steady-state MSE (last 25% of episode), raw units, mean over 5 seeds |
-
----
+```bash
+# one-time: sync repo to the GPU box (checkpoints/figures are gitignored -> tiny)
+rsync -az --exclude results/runs --exclude '*.pt' --exclude '*.zip' \
+      ./ rmedu-pc:/tmp/rlaf/
+# launch + monitor + pull results back
+ssh rmedu-pc 'cd /tmp/rlaf && PYTHONPATH=. python scripts/train_anc.py hybrid bptt rl eval'
+rsync -az rmedu-pc:/tmp/rlaf/results/runs/eval_anc ./results/runs/
+```
 
 ## Tests
 
 ```bash
-python -m pytest tests/ -v
+python -m pytest tests/ -q
 ```
 
 ## License
-
 MIT — see `LICENSE`.
