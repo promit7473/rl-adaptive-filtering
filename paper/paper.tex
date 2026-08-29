@@ -141,57 +141,62 @@ stationary interference and strictly wins under abrupt path changes, with
 
 \begin{figure*}[!t]
 \centering
-\resizebox{0.98\textwidth}{!}{%
+\resizebox{\textwidth}{!}{%
 \begin{tikzpicture}[
-  >=Stealth, font=\sffamily\footnotesize, x=1cm, y=1cm,
-  blk/.style={rectangle, draw=black!45, rounded corners=2pt, fill=white,
-              align=center, inner sep=4pt, minimum height=8mm},
-  sum/.style={circle, draw=black!55, fill=white, minimum size=6mm, inner sep=0pt},
-  wire/.style={-Stealth, line width=0.8pt, draw=wiregray, rounded corners=2pt},
-  obs/.style={-Stealth, line width=1.2pt, draw=deepblue, rounded corners=2pt},
-  act/.style={-Stealth, line width=1.2pt, draw=accentred, rounded corners=2pt},
-  lbl/.style={font=\sffamily\scriptsize, inner sep=1.5pt}]
+  >=Stealth, font=\sffamily\small, x=1cm, y=1cm,
+  blk/.style={rectangle, draw=black!45, rounded corners=2.5pt, fill=white,
+              align=center, inner xsep=6pt, inner ysep=5pt, minimum height=10mm},
+  sum/.style={circle, draw=black!60, fill=white, minimum size=7mm, inner sep=0pt},
+  wire/.style={-Stealth, line width=0.9pt, draw=wiregray, rounded corners=3pt},
+  obs/.style={-Stealth, line width=1.3pt, draw=deepblue, rounded corners=3pt},
+  act/.style={-Stealth, line width=1.3pt, draw=accentred, rounded corners=3pt},
+  lbl/.style={font=\sffamily\footnotesize, inner sep=2pt},
+  tin/.style={font=\sffamily\scriptsize, inner sep=1.5pt, text=black!70}]
 
   \begin{scope}[on background layer]
-    \fill[panelblue, rounded corners=6pt] (-0.4,-0.6) rectangle (10.6,3.4);
-    \fill[panelred,  rounded corners=6pt] (11.0,-0.6) rectangle (17.4,3.4);
+    \fill[panelblue, rounded corners=8pt] (-0.4,0.5) rectangle (10.6,7.5);
+    \fill[panelred,  rounded corners=8pt] (10.9,0.5) rectangle (16.6,7.5);
   \end{scope}
-  \node[lbl, anchor=west, text=deepblue] at (-0.3,3.15) {\bfseries A\ \ REFERENCE-BASED ANC PLANT (deployment: observables only)};
-  \node[lbl, anchor=west, text=accentred] at (11.1,3.15) {\bfseries B\ \ META-RL CONTROLLER (ours)};
+  \node[lbl,anchor=west,text=deepblue]  at (-0.25,7.15) {\bfseries A\ \ REFERENCE-BASED ANC PLANT\ \ (deployment: observables only)};
+  \node[lbl,anchor=west,text=accentred] at (11.05,7.15) {\bfseries B\ \ META-RL CONTROLLER (ours)};
 
-  % --- plant ---
-  \node[blk] (src)  at (0.6,2.3) {clean\\ $d[n]$};
-  \node[blk] (path) at (0.6,0.4) {unknown\\ path $H$};
-  \node[blk, text=black!55] (isrc) at (-0.9,0.4) {ref.\\ $x[n]$};
-  \node[sum] (p)    at (3.0,2.3) {$+$};
-  \node[blk] (kal)  at (5.6,0.4) {\textbf{Kalman filter}\\ $\mathbf{w}_t,\,P_t$\ ($M{=}16$)};
-  \node[sum] (s)    at (8.4,2.3) {$-$};
+  % ---------- plant ----------
+  \node[sum] (sub) at (6.3,5.5) {$-$};
+  \node[blk] (kal) at (6.3,2.7) {\textbf{Kalman filter}\\[1pt]{\footnotesize $\mathbf{w}_t,\,P_t$\ \ ($M{=}16$)}};
+  \node[blk,text=black!60] (xsrc) at (1.5,2.7) {reference\\ $x[n]$};
 
-  \draw[wire] (src) -- (p) node[midway,above,lbl]{};
-  \draw[wire] (isrc) -- (path);
-  \draw[wire] (path) -| (p) node[near end,left,lbl]{$v[n]$};
-  \draw[wire] (p) -- (s) node[midway,above,lbl]{primary $y[n]$};
-  \draw[wire] (kal) -- (s) node[midway,left,lbl]{$\hat{v}[n]$};
-  \draw[obs] (s) -- (10.2,2.3) node[midway,above,lbl]{$e[n]$ (denoised out)};
-  % reference into filter
-  \draw[wire] (isrc) |- (2.0,-0.2) -| (kal.south);
-  \node[lbl] at (2.3,-0.4) {reference $x[n]$};
-  % innovation feedback to filter
-  \draw[obs] (9.3,2.3) |- (7.6,1.3) -- (kal.east);
-  \node[lbl,text=deepblue] at (8.5,1.5) {adapt};
+  % primary input (top) into subtractor
+  \draw[wire] (6.3,6.85) -- (sub.north);
+  \node[lbl,anchor=south west] at (2.5,6.55) {primary $y[n]=d[n]+v[n]$,\ \ $v[n]=(H\!\star\!x)[n]$};
 
-  % --- controller ---
-  \node[blk] (phi)  at (12.3,2.3) {state $\bm{\phi}_t\!\in\!\mathbb{R}^{11}$\\ {\scriptsize innovation, $S_t$, gain, $\log Q_{t-1}$}};
-  \node[blk] (lstm) at (15.6,2.3) {LSTM$_{256}\!\times\!2$\\ actor--critic};
-  \node[blk] (out)  at (15.6,0.5) {$(Q_t,R_t)$\\ {\scriptsize process/meas.\ noise}};
+  % reference -> filter ; filter -> subtractor
+  \draw[wire] (xsrc) -- (kal);
+  \draw[wire] (kal.north) -- (sub.south) node[midway,right=1pt,lbl]{$\hat v[n]$};
 
-  \draw[obs] (10.5,2.3) |- (11.0,2.3) -- (phi);
+  % denoised output
+  \draw[obs] (sub.east) -- (10.0,5.5);
+  \node[lbl,anchor=south] at (8.1,5.6) {$e[n]$ (denoised output)};
+
+  % adapt feedback: tap the residual, run down into the filter
+  \node[circle,fill=deepblue,inner sep=1.4pt] (tap) at (7.5,5.5) {};
+  \draw[obs] (tap) |- (kal.east);
+  \node[lbl,text=deepblue,anchor=west] at (7.65,3.9) {adapt};
+
+  % ---------- controller ----------
+  \node[blk] (phi)  at (13.6,5.5) {state $\bm{\phi}_t\!\in\!\mathbb{R}^{11}$\\[1pt]{\footnotesize innov.\ $e_t$, $S_t$, gain, $\log Q_{t-1}$}};
+  \node[blk] (lstm) at (13.6,2.7) {LSTM$_{256}\!\times\!2$\\ actor--critic};
+
+  % observe e -> state
+  \draw[obs] (10.0,5.5) -- (phi.west);
+  \node[lbl,text=deepblue,anchor=south] at (10.9,5.6) {observe};
+  % state -> lstm
   \draw[wire] (phi) -- (lstm);
-  \draw[act] (lstm) -- (out);
-  \draw[act] (out) -| (5.6,-0.2) -- (kal.south west);
-  \node[lbl,text=accentred] at (9.5,-0.4) {set $Q_t$ (process noise) $\to$ filter};
+  % lstm -> (Q,R) -> back to filter (bottom rail)
+  \draw[act] (lstm.south) -- (13.6,1.3) -- (6.3,1.3) -- (kal.south);
+  \node[lbl,text=accentred,anchor=south] at (9.9,1.35) {$(Q_t,R_t)$:\ set Kalman process/measurement noise};
 
-\end{tikzpicture}}
+\end{tikzpicture}%
+}
 \caption{\textbf{Proposed system.} A reference $x[n]$ reaches the primary
 sensor through an unknown path $H$, corrupting the clean signal $d[n]$; the
 Kalman filter estimates the interference $\hat{v}[n]$ from the reference and
