@@ -34,9 +34,9 @@ def test_chirp_interferer_below_nyquist_at_fs360():
     noise = make_noise("chirp_interferer", clean, rng, snr_db=10.0, fs=fs)
     spec = np.abs(np.fft.rfft(noise))
     freqs = np.fft.rfftfreq(n, d=1.0 / fs)
-    peak_hz = float(freqs[int(np.argmax(spec))])
-    assert peak_hz < fs / 2.0
     nyquist = fs / 2.0
+    peak_hz = float(freqs[int(np.argmax(spec))])
+    assert peak_hz <= 0.45 * nyquist
     band = (freqs >= 0.05 * nyquist) & (freqs <= 0.45 * nyquist)
     assert spec[band].sum() > spec[~band].sum()
 

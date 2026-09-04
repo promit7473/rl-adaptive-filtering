@@ -67,23 +67,33 @@ def test_aboulnasr_mayyas_signed_error_autocorr():
     )
     u = np.ones(order) * 1e-6
 
-    _, e1 = filt.step(u, 1.0)
+    _, e1 = filt.step(u, 2.0)
     assert e1 > 0
-    p_after_1 = filt.p
-    prev_e = filt.prev_e
-    mu_after_1 = filt.mu
 
-    _, e2 = filt.step(u, -1.0)
+    _, e2 = filt.step(u, -3.0)
     assert e2 < 0
     assert filt.p < 0
+    p_after_2 = filt.p
+    mu_after_2 = filt.mu
 
-    p_ref = beta * p_after_1 + (1.0 - beta) * e2 * prev_e
-    mu_ref = float(np.clip(alpha * mu_after_1 + gamma_p * p_ref ** 2, mu_min, mu_max))
+    _, e3 = filt.step(u, 0.5)
+    p_ref = beta * p_after_2 + (1.0 - beta) * e3 * e2
+    mu_ref = float(np.clip(alpha * mu_after_2 + gamma_p * p_ref ** 2, mu_min, mu_max))
     assert np.isclose(filt.p, p_ref)
     assert np.isclose(filt.mu, mu_ref)
+
+
+def test_windowize_contract():
+    x = np.array([1.0, 2.0, 3.0, 4.0, 5.0])
+    M = 3
+    U = windowize(x, M)
+    assert U.shape == (len(x), M)
+    assert np.allclose(U[:, 0], x)
+    assert np.allclose(U[0, 1:], 0.0)
 
 
 if __name__ == "__main__":
     test_all_filters_converge()
     test_aboulnasr_mayyas_signed_error_autocorr()
+    test_windowize_contract()
     print("All filter tests passed.")
