@@ -33,91 +33,6 @@ class LayerNorm(nn.Module):
         return self.weight * (x - mean) / std + self.bias
 
 
-class LSTMController(nn.Module):
-    """Deep LSTM controller with actor/critic + 3 auxiliary heads."""
-    def __init__(self, feat_dim: int = 11, hidden: int = 256,
-                 n_lstm_layers: int = 2, act_dim: int = 2,
-                 n_families: int = 8, dropout: float = 0.0):
-        super().__init__()
-        self.feat_dim = feat_dim
-        self.hidden = hidden
-        self.act_dim = act_dim
-        self.n_families = n_families
-        self.norm = LayerNorm(feat_dim)
-        self.lstm = nn.LSTM(feat_dim, hidden, num_layers=n_lstm_layers,
-                            batch_first=False,
-                            dropout=dropout if n_lstm_layers > 1 else 0)
-        self.actor = nn.Sequential(
-            nn.Linear(hidden, hidden),
-            nn.ReLU(),
-            nn.Linear(hidden, hidden // 2),
-            nn.ReLU(),
-            nn.Linear(hidden // 2, act_dim),
-            nn.Tanh(),
-        )
-        self.critic = nn.Sequential(
-            nn.Linear(hidden, hidden),
-            nn.ReLU(),
-            nn.Linear(hidden, 1),
-        )
-        self.aux_error = nn.Sequential(
-            nn.Linear(hidden, hidden // 2),
-            nn.ReLU(),
-            nn.Linear(hidden // 2, 1),
-        )
-        self.aux_signal = nn.Sequential(
-            nn.Linear(hidden, hidden // 2),
-            nn.ReLU(),
-            nn.Linear(hidden // 2, 1),
-        )
-        self.aux_task = nn.Sequential(
-            nn.Linear(hidden, hidden // 2),
-            nn.ReLU(),
-            nn.Linear(hidden // 2, n_families),
-        )
-        self.aux_snr = nn.Sequential(
-            nn.Linear(hidden, hidden // 2),
-            nn.ReLU(),
-            nn.Linear(hidden // 2, 1),
-        )
-        self.log_std = nn.Parameter(torch.zeros(act_dim))
-        self._init_weights()
-
-    def _init_weights(self):
-        for name, p in self.named_parameters():
-            if 'weight_ih' in name:
-                nn.init.xavier_uniform_(p)
-            elif 'weight_hh' in name:
-                nn.init.orthogonal_(p)
-            elif 'bias' in name and 'lstm' in name:
-                with torch.no_grad():
-                    nn.init.zeros_(p)
-                    n = p.shape[0]
-                    p[n // 4:n // 2].fill_(1.0)
-            elif 'bias' in name:
-                nn.init.zeros_(p)
-
-    def forward(self, x: torch.Tensor, state=None):
-        if x.dim() == 2:
-            x = x.unsqueeze(0)
-        x = self.norm(x)
-        out, state = self.lstm(x, state)
-        action = self.actor(out)
-        value = self.critic(out)
-        pred_err = self.aux_error(out)
-        pred_sig = self.aux_signal(out)
-        pred_task = self.aux_task(out)
-        pred_snr = self.aux_snr(out)
-        return action, state, value, pred_err, pred_sig, pred_task, pred_snr
-
-    def get_logprob(self, action, mean):
-        std = torch.exp(self.log_std.clamp(-2, 2))
-        log_prob = -0.5 * (((action - mean) / std) ** 2).sum(-1) \
-                   - 0.5 * self.act_dim * math.log(2 * math.pi) \
-                   - self.log_std.clamp(-2, 2).sum()
-        return log_prob
-
-
 class TransformerController(nn.Module):
     """Causal transformer controller with 4 auxiliary heads."""
     def __init__(self, feat_dim: int = 11, d_model: int = 256,
@@ -174,13 +89,6 @@ class TransformerController(nn.Module):
         pred_task = self.aux_task(h).permute(1, 0, 2)
         pred_snr = self.aux_snr(h).permute(1, 0, 2)
         return action, None, value, pred_err, pred_sig, pred_task, pred_snr
-
-    def get_logprob(self, action, mean):
-        std = torch.exp(self.log_std.clamp(-2, 2))
-        log_prob = -0.5 * (((action - mean) / std) ** 2).sum(-1) \
-                   - 0.5 * self.act_dim * math.log(2 * math.pi) \
-                   - self.log_std.clamp(-2, 2).sum()
-        return log_prob
 
 
 class HybridController(nn.Module):
@@ -275,9 +183,6 @@ class HybridController(nn.Module):
         pred_snr = self.aux_snr(out)
         return action, state, value, pred_err, pred_sig, pred_task, pred_snr
 
-    def get_logprob(self, action, mean):
-        std = torch.exp(self.log_std.clamp(-2, 2))
-        log_prob = -0.5 * (((action - mean) / std) ** 2).sum(-1) \
-                   - 0.5 * self.act_dim * math.log(2 * math.pi) \
-                   - self.log_std.clamp(-2, 2).sum()
-        return log_prob
+
+# Checkpoint class stays HybridController; lstm type is the same net.
+LSTMController = HybridController

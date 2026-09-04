@@ -11,9 +11,10 @@ from matplotlib import ticker
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.append(ROOT)
 
-from src.agents.controller import HybridController
+from src.eval.runner import load_controller
 from src.filters import NLMS, RLS, VSSLMS, windowize
-from src.envs.adaptive_filter_env_v2 import AdaptiveFilterEnvV2, EnvConfigV2, _decode_action_v2
+from src.envs.adaptive_filter_env_v2 import AdaptiveFilterEnvV2, EnvConfigV2
+from src.kernel import FEAT_DIM
 from src.signals.generators import make_signal
 from scripts.paper_plots import apply_style, _despine, OURS, COL
 
@@ -67,20 +68,9 @@ def run_recovery_simulation():
 
     # 6. Simulate Hybrid BPTT+RL Controller (Ours)
     hybrid_path = os.path.join(ROOT, "results", "runs", "hybrid_seed42", "controller_final.pt")
-    hybrid_ckpt = torch.load(hybrid_path, map_location="cpu", weights_only=False)
-    tcfg = hybrid_ckpt.get("config", None)
-    g = lambda k, d: getattr(tcfg, k, d) if tcfg is not None else d
-    hybrid_ctrl = HybridController(feat_dim=11, hidden=g('lstm_hidden', 256),
-                                   n_lstm_layers=g('n_lstm_layers', 2),
-                                   act_dim=2, n_families=8)
-    hybrid_ctrl.load_state_dict(hybrid_ckpt["state_dict"])
-    hybrid_ctrl.eval()
+    hybrid_ctrl, env_kw = load_controller(hybrid_path)
 
-    env_cfg = EnvConfigV2(fs=fs, episode_len=N, filter_order=order, state_window=1,
-                          mu_min=g('mu_min', 0.005), mu_max=g('mu_max', 2.0),
-                          leakage_min=g('lam_min', 0.80),
-                          leakage_max=g('lam_max', 0.999),
-                          mu_base_schedule=g('use_mu_schedule', True))
+    env_cfg = EnvConfigV2(fs=fs, episode_len=N, filter_order=order, **env_kw)
     env = AdaptiveFilterEnvV2(env_cfg, fixed_family="burst",
                               fixed_signal="multitone", fixed_snr_db=10, seed=seed)
     env.set_preset_episode(clean, noisy)
@@ -91,7 +81,7 @@ def run_recovery_simulation():
     mu_hyb = np.zeros(N)
 
     for t in range(N):
-        obs_t = torch.tensor(obs[-11:], dtype=torch.float32).unsqueeze(0).unsqueeze(0)
+        obs_t = torch.tensor(obs[-FEAT_DIM:], dtype=torch.float32).unsqueeze(0).unsqueeze(0)
         with torch.no_grad():
             action, state, *_ = hybrid_ctrl(obs_t, state)
 

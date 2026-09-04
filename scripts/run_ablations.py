@@ -79,7 +79,7 @@ def train(names):
 
 def evaluate():
     import csv
-    from scripts import benchmark as bm
+    from src.eval.runner import load_controller, run_controller_episode
     from scripts.train_pipeline import make_episodes, FS, N, ORDER
 
     episodes = {k: v for k, v in make_episodes().items() if k[2] == 10}
@@ -89,10 +89,10 @@ def evaluate():
         if not os.path.isfile(path):
             print(f"[abl] {name}: no checkpoint, skipping")
             continue
-        ctrl, env_kw = bm._load_controller(path)
+        ctrl, env_kw = load_controller(path)
         print(f"[abl] evaluating {name} ({len(episodes)} episodes)", flush=True)
         for (sig, fam, snr, seed), (clean, noisy) in episodes.items():
-            e, dt, divc = bm._run_controller_episode(
+            e, dt, divc = run_controller_episode(
                 ctrl, env_kw, clean, noisy, FS, N, ORDER)
             ss = float(np.mean(e[-N // 4:] ** 2))
             rows.append(dict(variant=name, signal=sig, family=fam,

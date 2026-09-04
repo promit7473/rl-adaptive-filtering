@@ -144,32 +144,9 @@ def run_hybrid(seed):
 # Phase 2: Pure BPTT baseline
 # ============================================================
 def run_bptt(seed):
-    from src.agents.hybrid_trainer import train_hybrid, HybridTrainConfig
-    cfg = HybridTrainConfig(
-        n_iters=N_ITERS,
-        batch_size=24,
-        episode_len=1000,
-        trunc_bptt=64,
-        device='cuda' if torch.cuda.is_available() else 'cpu',
-        seed=seed,
-        save_every=250,
-        eval_every=200,
-        rl_phase_start=999999,
-        rl_loss_weight=0.0,
-        aux_signal_weight=0.3,
-        aux_error_weight=0.2,
-        aux_task_weight=0.1,
-        convergence_bonus=0.15,
-        robust_alpha=0.05,
-        controller_type='hybrid',
-        lstm_hidden=LSTM_HIDDEN,
-        n_lstm_layers=N_LSTM_LAYERS,
-        feat_dim=11,
-        lr=3e-4,
-        curriculum_ramp_iters=1000,
-        dropout=0.1,
-        use_mu_schedule=True,
-    )
+    from src.agents.hybrid_trainer import train_hybrid
+    cfg = hybrid_cfg(seed, rl_phase_start=10**9, rl_loss_weight=0.0,
+                     curriculum_ramp_iters=1000)
     out = os.path.join(RESULTS_DIR, f"bptt_seed{seed}")
     latest = _find_latest_ckpt(out)
     if latest == "__FINAL__":
@@ -338,13 +315,9 @@ def run_eval(hybrid_paths, bptt_paths, rl_paths):
         NLMS, RLS, VSSLMS, AboulnasrMayyasVSS, HeuristicMuScheduler,
         PIDLeakyNLMS, FixedLeakageNLMS, MetaAFFilter, windowize,
     )
-    from src.envs.adaptive_filter_env_v2 import AdaptiveFilterEnvV2, EnvConfigV2
-    from src.eval.metrics import steady_state_mse, convergence_time
-    from src.agents.controller import LSTMController, HybridController, TransformerController
-    from stable_baselines3 import PPO
-    from sb3_contrib import RecurrentPPO
-    from stable_baselines3.common.vec_env import DummyVecEnv
-    from stable_baselines3.common.vec_env.vec_normalize import VecNormalize
+    from src.eval.runner import (
+        load_controller, run_controller_episode, run_rl_episode, load_rl, metrics_row,
+    )
     import csv
 
     eval_dir = os.path.join(RESULTS_DIR, "eval")
@@ -355,19 +328,8 @@ def run_eval(hybrid_paths, bptt_paths, rl_paths):
     episodes = make_episodes()
 
     def _row(method, sig, fam, snr, seed, e, dt_ms, divergence_count=0):
-        e = np.asarray(e, dtype=np.float64)
-        finite = np.isfinite(e)
-        n_nonfinite = int(np.sum(~finite))
-        e_safe = np.where(finite, e, 1e6)
-        ss = steady_state_mse(e_safe)
-        ss_db = float(10 * np.log10(ss + 1e-12))
-        return dict(method=method, signal=sig, family=fam, snr_db=snr, seed=seed,
-                    ss_mse=float(ss), ss_mse_db=ss_db,
-                    ep_mse=float(np.mean(e_safe ** 2)),
-                    conv_time=float(convergence_time(e_safe)),
-                    inference_time_ms=float(dt_ms),
-                    divergence_count=int(divergence_count),
-                    diverged=int(n_nonfinite > 0 or ss_db > 10.0))
+        return metrics_row(method, e, dt_ms, signal=sig, family=fam, snr_db=snr,
+                           seed=seed, divergence_count=int(divergence_count))
 
     # --- Classical baselines + Meta-AF (raw units) ---
     classical_methods = {
@@ -410,121 +372,24 @@ def run_eval(hybrid_paths, bptt_paths, rl_paths):
 
     for name, path in all_model_paths.items():
         log(f"Evaluating {name}...")
-        ckpt = torch.load(path, map_location="cpu", weights_only=False)
-        tcfg = ckpt.get("config", None)
-        ctrl_type = getattr(tcfg, 'controller_type', 'hybrid') if tcfg else 'hybrid'
-        lstm_hidden = getattr(tcfg, 'lstm_hidden', LSTM_HIDDEN) if tcfg else LSTM_HIDDEN
-        n_lstm_layers = getattr(tcfg, 'n_lstm_layers', N_LSTM_LAYERS) if tcfg else N_LSTM_LAYERS
-        mu_min = getattr(tcfg, 'mu_min', 0.005) if tcfg else 0.005
-        mu_max = getattr(tcfg, 'mu_max', 2.0) if tcfg else 2.0
-        lam_min = getattr(tcfg, 'lam_min', 0.80) if tcfg else 0.80
-        lam_max = getattr(tcfg, 'lam_max', 0.999) if tcfg else 0.999
-        use_sched = getattr(tcfg, 'use_mu_schedule', True) if tcfg else True
-
-        if ctrl_type == "hybrid":
-            ctrl = HybridController(feat_dim=11, hidden=lstm_hidden,
-                                    n_lstm_layers=n_lstm_layers, act_dim=2, n_families=8)
-        elif ctrl_type == "transformer":
-            ctrl = TransformerController(feat_dim=11, d_model=lstm_hidden,
-                                         n_heads=4, n_layers=4, act_dim=2)
-        else:
-            ctrl = LSTMController(feat_dim=11, hidden=lstm_hidden,
-                                  n_lstm_layers=n_lstm_layers, act_dim=2)
-        ctrl.load_state_dict(ckpt["state_dict"])
-        ctrl.eval()
-
-        env_cfg = EnvConfigV2(fs=FS, episode_len=N, filter_order=ORDER,
-                              state_window=1, mu_min=mu_min, mu_max=mu_max,
-                              leakage_min=lam_min, leakage_max=lam_max,
-                              mu_base_schedule=use_sched)
+        ctrl, env_kw = load_controller(path)
 
         for (sig_kind, fam, snr, seed), (clean, noisy) in episodes.items():
-            env = AdaptiveFilterEnvV2(env_cfg, fixed_family=fam,
-                                      fixed_signal=sig_kind,
-                                      fixed_snr_db=snr, seed=seed)
-            env.set_preset_episode(clean, noisy)
-            obs, _ = env.reset(seed=seed)
-            state = None
-            errs = []
-            t0 = time.perf_counter()
-            done = False
-            while not done:
-                obs_t = torch.tensor(obs[-11:], dtype=torch.float32).unsqueeze(0).unsqueeze(0)
-                with torch.no_grad():
-                    action, state, *_ = ctrl(obs_t, state)
-                action_np = action[0, 0].cpu().numpy()
-                obs, _, term, trunc, _ = env.step(action_np)
-                errs.append(env.last_e)
-                done = term or trunc
-            dt = (time.perf_counter() - t0) * 1000
-            e = np.array(errs) * env.norm_scale  # back to raw units
+            e, dt, divc = run_controller_episode(
+                ctrl, env_kw, clean, noisy, FS, N, ORDER)
             rows.append(_row(name, sig_kind, fam, snr, seed, e, dt,
-                             divergence_count=env.divergence_count))
+                             divergence_count=divc))
 
     # --- RL model (sb3), errors rescaled to raw units ---
     for name, path in rl_paths.items():
         log(f"Evaluating {name}...")
-        try:
-            model = PPO.load(path, device="cpu")
-            is_rec = False
-        except Exception:
-            model = RecurrentPPO.load(path, device="cpu")
-            is_rec = True
-
-        vec_path = path.replace("_final.zip", "_vecnormalize.pkl")
-        vec_norm = None
-        if os.path.exists(vec_path):
-            try:
-                # Dummy env must match the training obs space (RL_ENV_KW,
-                # state_window=1 → 11-dim); a default EnvConfigV2 is 44-dim
-                # and VecNormalize.load rejects it.
-                dummy_env = DummyVecEnv(
-                    [lambda: AdaptiveFilterEnvV2(EnvConfigV2(**RL_ENV_KW))])
-                vec_norm = VecNormalize.load(vec_path, dummy_env)
-                vec_norm.training = False
-                vec_norm.norm_reward = False
-            except Exception as ex:
-                log(f"WARNING: failed to load VecNormalize stats from "
-                    f"{vec_path} ({ex}); evaluating {name} on RAW "
-                    f"observations — results will not reflect training")
-                vec_norm = None
-
-        env_kw = dict(RL_ENV_KW)
-        env_kw["episode_len"] = N
-        env_cfg = EnvConfigV2(**env_kw)
+        model, is_rec, vec_norm = load_rl(path)
 
         for (sig_kind, fam, snr, seed), (clean, noisy) in episodes.items():
-            env = AdaptiveFilterEnvV2(env_cfg, fixed_family=fam,
-                                      fixed_signal=sig_kind,
-                                      fixed_snr_db=snr, seed=seed)
-            env.set_preset_episode(clean, noisy)
-            obs, _ = env.reset(seed=seed)
-            if vec_norm is not None:
-                obs = vec_norm.normalize_obs(obs)
-            lstm_state = None
-            episode_starts = np.ones((1,), dtype=bool) if is_rec else None
-            errs = []
-            t0 = time.perf_counter()
-            done = False
-            while not done:
-                if is_rec:
-                    a, lstm_state = model.predict(
-                        obs[None, :], state=lstm_state,
-                        episode_start=episode_starts,
-                        deterministic=True)
-                    episode_starts = np.zeros((1,), dtype=bool)
-                    a_use = a[0]
-                else:
-                    a_use, _ = model.predict(obs, deterministic=True)
-                obs, _, term, trunc, _ = env.step(a_use)
-                if vec_norm is not None:
-                    obs = vec_norm.normalize_obs(obs)
-                errs.append(env.last_e)
-                done = term or trunc
-            dt = (time.perf_counter() - t0) * 1000
-            e = np.array(errs) * env.norm_scale
+            e, dt, divc = run_rl_episode(
+                model, is_rec, vec_norm, clean, noisy, FS, N, ORDER)
             rows.append(_row(name, sig_kind, fam, snr, seed, e, dt,
-                             divergence_count=env.divergence_count))
+                             divergence_count=divc))
 
     # --- Save results ---
     if rows:

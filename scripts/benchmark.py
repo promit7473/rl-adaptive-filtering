@@ -12,8 +12,8 @@ Usage (method names must match what fig_realworld.py / ecg_stats.py expect):
         --meta-af-path results/meta_af/meta_af.pt
 
 Note: sb3 checkpoints carry no env config, so --rl-models assumes the policy
-was trained under train_pipeline.RL_ENV_KW (imported below). Legacy
-checkpoints trained with other action bounds cannot be evaluated correctly.
+was trained under train_pipeline.RL_ENV_KW. Legacy checkpoints trained with
+other action bounds cannot be evaluated correctly.
 """
 from __future__ import annotations
 import argparse
@@ -22,7 +22,6 @@ import os
 import time
 import zlib
 import numpy as np
-import torch
 
 from src.signals.generators import make_signal
 from src.noise.families import make_noise, TRAIN_FAMILIES, OOD_FAMILIES
@@ -30,10 +29,11 @@ from src.filters import (
     NLMS, RLS, VSSLMS, HeuristicMuScheduler,
     PIDLeakyNLMS, FixedLeakageNLMS, IIRNotch, MetaAFFilter, windowize,
 )
-from src.envs.adaptive_filter_env_v2 import AdaptiveFilterEnvV2, EnvConfigV2
-from src.eval.metrics import steady_state_mse, convergence_time
-from src.agents.controller import LSTMController, HybridController, TransformerController
-from scripts.train_pipeline import RL_ENV_KW, _episode_rng
+from src.eval.metrics import steady_state_mse
+from src.eval.runner import (
+    load_controller, run_controller_episode, run_rl_episode, load_rl, metrics_row,
+)
+from scripts.train_pipeline import _episode_rng
 
 ALL_FAMILIES = list(TRAIN_FAMILIES) + list(OOD_FAMILIES)
 
@@ -41,18 +41,8 @@ ALL_FAMILIES = list(TRAIN_FAMILIES) + list(OOD_FAMILIES)
 def _row(method, family, snr, seed, e, dt_ms, **extra):
     # Same schema as train_pipeline.run_eval._row (both write synthetic.csv and
     # make_table1.py reads whichever one produced it): NaN-safe, incl. diverged.
-    e = np.asarray(e, dtype=np.float64)
-    finite = np.isfinite(e)
-    n_nonfinite = int(np.sum(~finite))
-    e_safe = np.where(finite, e, 1e6)
-    ss = steady_state_mse(e_safe)
-    ss_db = float(10 * np.log10(ss + 1e-12))
-    return dict(method=method, family=family, snr_db=snr, seed=seed,
-                ss_mse=float(ss), ss_mse_db=ss_db,
-                ep_mse=float(np.mean(e_safe ** 2)),
-                conv_time=float(convergence_time(e_safe)),
-                inference_time_ms=float(dt_ms),
-                diverged=int(n_nonfinite > 0 or ss_db > 10.0), **extra)
+    return metrics_row(method, e, dt_ms, family=family, snr_db=snr, seed=seed,
+                       **extra)
 
 
 def _classical_run(filt, noisy, clean, order, single_input=False):
@@ -120,122 +110,10 @@ def eval_synthetic(args) -> list[dict]:
     return rows
 
 
-def _load_controller(path):
-    """Load a hybrid/BPTT controller + its training config from a checkpoint."""
-    ckpt = torch.load(path, map_location="cpu", weights_only=False)
-    tcfg = ckpt.get("config", None)
-    g = lambda k, d: getattr(tcfg, k, d) if tcfg is not None else d
-    ctrl_type = g('controller_type', 'hybrid')
-    lstm_hidden = g('lstm_hidden', 256)
-    n_lstm_layers = g('n_lstm_layers', 2)
-    if ctrl_type == "hybrid":
-        ctrl = HybridController(feat_dim=11, hidden=lstm_hidden,
-                                n_lstm_layers=n_lstm_layers, act_dim=2, n_families=8)
-    elif ctrl_type == "transformer":
-        ctrl = TransformerController(feat_dim=11, d_model=lstm_hidden,
-                                     n_heads=4, n_layers=4, act_dim=2)
-    else:
-        ctrl = LSTMController(feat_dim=11, hidden=lstm_hidden,
-                              n_lstm_layers=n_lstm_layers, act_dim=2)
-    ctrl.load_state_dict(ckpt["state_dict"])
-    ctrl.eval()
-    env_kw = dict(mu_min=g('mu_min', 0.005), mu_max=g('mu_max', 2.0),
-                  leakage_min=g('lam_min', 0.80), leakage_max=g('lam_max', 0.999),
-                  mu_base_schedule=g('use_mu_schedule', True),
-                  state_window=1)
-    return ctrl, env_kw
-
-
-# Single source of truth: the RL eval env is the RL training env
-# (train_pipeline.RL_ENV_KW), minus the fields each episode overrides.
-RL_EVAL_ENV_KW = {k: v for k, v in RL_ENV_KW.items()
-                  if k not in ("fs", "episode_len", "filter_order")}
-
-
-def _run_controller_episode(ctrl, env_kw, clean, noisy, fs, n, order):
-    """Run a hybrid/BPTT controller on a preset episode; raw-unit errors."""
-    env_cfg = EnvConfigV2(fs=fs, episode_len=n, filter_order=order, **env_kw)
-    env = AdaptiveFilterEnvV2(env_cfg, seed=0)
-    env.set_preset_episode(clean, noisy)
-    obs, _ = env.reset(seed=0)
-    state = None
-    errs = []
-    t0 = time.perf_counter()
-    done = False
-    while not done:
-        obs_t = torch.tensor(obs[-11:], dtype=torch.float32).unsqueeze(0).unsqueeze(0)
-        with torch.no_grad():
-            action, state, *_ = ctrl(obs_t, state)
-        obs, _, term, trunc, _ = env.step(action[0, 0].cpu().numpy())
-        errs.append(env.last_e)
-        done = term or trunc
-    dt = (time.perf_counter() - t0) * 1000
-    return np.array(errs) * env.norm_scale, dt, env.divergence_count
-
-
-def _run_rl_episode(model, is_rec, vec_norm, clean, noisy, fs, n, order):
-    """Run an sb3 RL policy on a preset episode; raw-unit errors."""
-    env_cfg = EnvConfigV2(fs=fs, episode_len=n, filter_order=order, **RL_EVAL_ENV_KW)
-    env = AdaptiveFilterEnvV2(env_cfg, seed=0)
-    env.set_preset_episode(clean, noisy)
-    obs, _ = env.reset(seed=0)
-    if vec_norm is not None:
-        obs = vec_norm.normalize_obs(obs)
-    lstm_state = None
-    starts = np.ones((1,), dtype=bool) if is_rec else None
-    errs = []
-    t0 = time.perf_counter()
-    done = False
-    while not done:
-        if is_rec:
-            a, lstm_state = model.predict(obs[None, :], state=lstm_state,
-                                          episode_start=starts, deterministic=True)
-            starts = np.zeros((1,), dtype=bool)
-            a_use = a[0]
-        else:
-            a_use, _ = model.predict(obs, deterministic=True)
-        obs, _, term, trunc, _ = env.step(a_use)
-        if vec_norm is not None:
-            obs = vec_norm.normalize_obs(obs)
-        errs.append(env.last_e)
-        done = term or trunc
-    dt = (time.perf_counter() - t0) * 1000
-    return np.array(errs) * env.norm_scale, dt, env.divergence_count
-
-
-def _load_rl(path):
-    from stable_baselines3 import PPO
-    from sb3_contrib import RecurrentPPO
-    from stable_baselines3.common.vec_env import DummyVecEnv
-    from stable_baselines3.common.vec_env.vec_normalize import VecNormalize
-    try:
-        model = PPO.load(path, device="cpu"); is_rec = False
-    except Exception:
-        model = RecurrentPPO.load(path, device="cpu"); is_rec = True
-    vec_path = path.replace("_final.zip", "_vecnormalize.pkl")
-    vec_norm = None
-    if os.path.exists(vec_path):
-        try:
-            # Dummy env must match the training obs space (RL_ENV_KW,
-            # state_window=1 → 11-dim); a default EnvConfigV2 is 44-dim and
-            # VecNormalize.load rejects it.
-            dummy_env = DummyVecEnv(
-                [lambda: AdaptiveFilterEnvV2(EnvConfigV2(**RL_ENV_KW))])
-            vec_norm = VecNormalize.load(vec_path, dummy_env)
-            vec_norm.training = False
-            vec_norm.norm_reward = False
-        except Exception as ex:
-            print(f"WARNING: failed to load VecNormalize stats from "
-                  f"{vec_path} ({ex}); evaluating on RAW observations — "
-                  f"RL results will not reflect the trained policy")
-            vec_norm = None
-    return model, is_rec, vec_norm
-
-
 def eval_hybrid_models(args, model_paths: dict[str, str]) -> list[dict]:
     rows = []
     for name, path in model_paths.items():
-        ctrl, env_kw = _load_controller(path)
+        ctrl, env_kw = load_controller(path)
         for sig_kind in args.signals:
             for fam in args.families:
                 for snr in args.snrs:
@@ -244,7 +122,7 @@ def eval_hybrid_models(args, model_paths: dict[str, str]) -> list[dict]:
                         clean = make_signal(sig_kind, n=args.n, fs=args.fs, rng=rng)
                         noisy = clean + make_noise(fam, clean, rng,
                                                    snr_db=snr, fs=args.fs)
-                        e, dt, _ = _run_controller_episode(
+                        e, dt, _ = run_controller_episode(
                             ctrl, env_kw, clean, noisy, args.fs, args.n, args.order)
                         rows.append(_row(name, fam, snr, seed, e, dt,
                                          signal=sig_kind))
@@ -254,7 +132,7 @@ def eval_hybrid_models(args, model_paths: dict[str, str]) -> list[dict]:
 def eval_rl_v3(args, model_paths: dict[str, str]) -> list[dict]:
     rows = []
     for name, path in model_paths.items():
-        model, is_rec, vec_norm = _load_rl(path)
+        model, is_rec, vec_norm = load_rl(path)
         for sig_kind in args.signals:
             for fam in args.families:
                 for snr in args.snrs:
@@ -263,7 +141,7 @@ def eval_rl_v3(args, model_paths: dict[str, str]) -> list[dict]:
                         clean = make_signal(sig_kind, n=args.n, fs=args.fs, rng=rng)
                         noisy = clean + make_noise(fam, clean, rng,
                                                    snr_db=snr, fs=args.fs)
-                        e, dt, _ = _run_rl_episode(
+                        e, dt, _ = run_rl_episode(
                             model, is_rec, vec_norm, clean, noisy,
                             args.fs, args.n, args.order)
                         rows.append(_row(name, fam, snr, seed, e, dt,
@@ -284,9 +162,9 @@ def eval_ecg_v3(args, hybrid_paths: dict, rl_paths: dict) -> list[dict]:
     n = args.ecg_len
 
     classical = _build_classical_methods(args, fs)
-    hybrid_loaded = {name: _load_controller(path)
+    hybrid_loaded = {name: load_controller(path)
                      for name, path in hybrid_paths.items()}
-    rl_loaded = {name: _load_rl(path) for name, path in rl_paths.items()}
+    rl_loaded = {name: load_rl(path) for name, path in rl_paths.items()}
 
     def _scale(noise, clean, snr_db):
         ps = float(np.mean(clean ** 2))
@@ -342,12 +220,12 @@ def eval_ecg_v3(args, hybrid_paths: dict, rl_paths: dict) -> list[dict]:
                         rows.append(_ecg_row(mname, e, dt))
 
                     for mname, (ctrl, env_kw) in hybrid_loaded.items():
-                        e, dt, _ = _run_controller_episode(
+                        e, dt, _ = run_controller_episode(
                             ctrl, env_kw, clean, noisy, fs, n, args.order)
                         rows.append(_ecg_row(mname, e, dt))
 
                     for mname, (model, is_rec, vec_norm) in rl_loaded.items():
-                        e, dt, _ = _run_rl_episode(
+                        e, dt, _ = run_rl_episode(
                             model, is_rec, vec_norm, clean, noisy,
                             fs, n, args.order)
                         rows.append(_ecg_row(mname, e, dt))
