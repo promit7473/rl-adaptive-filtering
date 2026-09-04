@@ -529,14 +529,35 @@ def _rl_phase_proper(controller, diff_cfg, cfg, rng, device, optimizer):
     obs_arr = np.stack(all_obs)
     act_arr = np.stack(all_actions)
 
-    chunk_len = min(cfg.ppo_mb_size, n_steps)
-    n_chunks_rollout = max(1, n_steps // chunk_len)
+    # Windows must not straddle env starts: stored_states[c_start] is the
+    # correct LSTM init only while the window stays in one env's stream.
+    # Env starts store None (lstm_state = None at the env_i loop). Meta-episode
+    # env.reset() does not zero the LSTM, so those steps stay in-stream.
+    # TransformerController stores None everywhere — keep the original split.
+    if all(s is None for s in all_states):
+        chunk_len = min(cfg.ppo_mb_size, n_steps)
+        n_chunks_rollout = max(1, n_steps // chunk_len)
+        windows = [
+            (ci * chunk_len, min((ci + 1) * chunk_len, n_steps))
+            for ci in range(n_chunks_rollout)
+        ]
+    else:
+        env_starts = [i for i, s in enumerate(all_states) if s is None and i > 0]
+        boundaries = [0] + env_starts + [n_steps]
+        windows = []
+        for k in range(len(boundaries) - 1):
+            seg_start, seg_end = boundaries[k], boundaries[k + 1]
+            seg_len = seg_end - seg_start
+            if seg_len <= 0:
+                continue
+            win_len = min(cfg.ppo_mb_size, seg_len)
+            for c_start in range(seg_start, seg_end, win_len):
+                windows.append((c_start, min(c_start + win_len, seg_end)))
 
     for epoch in range(cfg.ppo_epochs):
-        chunk_order = torch.randperm(n_chunks_rollout, device=device)
+        chunk_order = torch.randperm(len(windows), device=device)
         for ci in chunk_order:
-            c_start = int(ci) * chunk_len
-            c_end = min(c_start + chunk_len, n_steps)
+            c_start, c_end = windows[int(ci)]
             if c_end - c_start < 4:
                 continue
 
