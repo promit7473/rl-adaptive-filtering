@@ -27,7 +27,7 @@ def main():
     fam_weights = np.array([CURRICULUM_WEIGHTS.get(f, 1.0) for f in families], dtype=float)
 
     def env_factory(rng: np.random.Generator):
-        clean, noisy, _, _ = sample_episode(
+        clean, noisy, _, _, _, _ = sample_episode(
             rng, args.episode_len, args.fs,
             train_families=families,
             signal_kinds=SIGNAL_KINDS,

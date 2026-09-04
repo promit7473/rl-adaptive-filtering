@@ -5,7 +5,7 @@ import torch
 from src.kernel import (
     ActionBounds, FeatureState, FEAT_SCALE, MU_SCHEDULE_REF,
     decode_action_np, decode_action_torch, features_np, features_torch,
-    mu_base_schedule,
+    mu_base_schedule, nlms_update_np, nlms_update_torch,
 )
 from src.envs.adaptive_filter_env_v2 import AdaptiveFilterEnvV2, EnvConfigV2
 from src.filters.base import windowize
@@ -51,7 +51,6 @@ def test_features_np_torch_match():
         torch.tensor([last2_e], dtype=torch.float64),
         torch.tensor([ema_e2], dtype=torch.float64),
         feat_scale=FEAT_SCALE,
-        filter_order=16,
     )
     np.testing.assert_allclose(feat_np, feat_t[0].numpy(), atol=1e-6)
     np.testing.assert_allclose(st.ema_e2, ema_t[0].item(), atol=1e-6)
@@ -113,3 +112,67 @@ def test_windowize_matches_env_x_buf():
     for t in range(n):
         env.step(a)
         np.testing.assert_allclose(env.x_buf, U[t], atol=1e-12)
+
+
+def test_nlms_update_np_torch_match():
+    rng = np.random.default_rng(3)
+    B, M = 4, 16
+    w = rng.normal(size=(B, M))
+    x = rng.normal(size=(B, M))
+    e = rng.normal(size=B)
+    mu = rng.uniform(0.01, 1.0, size=B)
+    lam = rng.uniform(0.85, 0.99, size=B)
+    w_np = np.stack([
+        nlms_update_np(w[i], x[i], float(e[i]), float(mu[i]), float(lam[i]))
+        for i in range(B)
+    ])
+    w_t = nlms_update_torch(
+        torch.tensor(w, dtype=torch.float64),
+        torch.tensor(x, dtype=torch.float64),
+        torch.tensor(e, dtype=torch.float64),
+        torch.tensor(mu, dtype=torch.float64),
+        torch.tensor(lam, dtype=torch.float64),
+    )
+    np.testing.assert_allclose(w_np, w_t.numpy(), atol=1e-6)
+
+    w_big = w * 50.0
+    w_np_clip = np.stack([
+        nlms_update_np(w_big[i], x[i], float(e[i]), 2.0, 1.0, max_w_norm=100.0)
+        for i in range(B)
+    ])
+    w_t_clip = nlms_update_torch(
+        torch.tensor(w_big, dtype=torch.float64),
+        torch.tensor(x, dtype=torch.float64),
+        torch.tensor(e, dtype=torch.float64),
+        torch.full((B,), 2.0, dtype=torch.float64),
+        torch.ones(B, dtype=torch.float64),
+        max_w_norm=100.0,
+    )
+    np.testing.assert_allclose(w_np_clip, w_t_clip.numpy(), atol=1e-6)
+    assert np.all(np.linalg.norm(w_np_clip, axis=1) <= 100.0 + 1e-9)
+
+
+def test_env_reset_dummy_features_match_kernel():
+    rng = np.random.default_rng(4)
+    n, order = 64, 16
+    clean = rng.normal(size=n)
+    noisy = clean + 0.1 * rng.normal(size=n)
+    cfg = EnvConfigV2(episode_len=n, filter_order=order, state_window=1)
+    env = AdaptiveFilterEnvV2(cfg, seed=0)
+    env.set_preset_episode(clean, noisy)
+    env.reset()
+
+    geo_mu = float(np.sqrt(cfg.mu_min * cfg.mu_max))
+    geo_lam = float(np.sqrt(cfg.leakage_min * cfg.leakage_max))
+    ema0 = float(np.var(env.noisy[:64])) + 1e-3
+    state = FeatureState(
+        last_e=0.0, last_last_e=0.0, ema_e2=ema0,
+        last_mu=geo_mu, last_lam=geo_lam, ema_alpha=cfg.ema_alpha,
+    )
+    feat, _ = features_np(
+        0.0, np.zeros(order), geo_mu, geo_lam, state, feat_scale=env.feat_scale,
+    )
+    np.testing.assert_allclose(env.feat_buf[-1], feat, atol=1e-6)
+    np.testing.assert_allclose(env.last_mu, geo_mu)
+    np.testing.assert_allclose(env.last_lam, geo_lam)
+    assert not np.allclose(env.feat_buf[-1], 0.0)

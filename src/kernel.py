@@ -148,7 +148,7 @@ def features_np(e, x_buf, last_mu, last_lam, state: FeatureState,
 
 
 def features_torch(e, x_buf, last_mu, last_lam, last_e, last2_e, ema_e2,
-                   feat_scale=FEAT_SCALE, ema_alpha=0.01, filter_order=16):
+                   feat_scale=FEAT_SCALE, ema_alpha=0.01):
     """Batched (B, 11) equivalent. Returns (feat, new_ema_e2)."""
     scale = torch.as_tensor(feat_scale, dtype=e.dtype, device=e.device)
 
@@ -181,8 +181,14 @@ def features_torch(e, x_buf, last_mu, last_lam, last_e, last2_e, ema_e2,
 
 def sample_episode(rng, n, fs, *, train_families, curriculum_frac=1.0,
                    signal_kinds, signal_weights, snr_options,
-                   family_weights=None) -> tuple[np.ndarray, np.ndarray, str, float]:
-    """Returns (clean, noisy, family_name, snr) after per-episode std-norm."""
+                   family_weights=None, normalize: bool = True,
+                   ) -> tuple[np.ndarray, np.ndarray, str, float, str, float]:
+    """Returns (clean, noisy, family_name, snr, sig_kind, norm_scale).
+
+    When ``normalize`` is True, both traces are divided by ``std(noisy)`` and
+    ``norm_scale`` is that pre-norm std; otherwise traces are raw and
+    ``norm_scale`` is 1.0.
+    """
     train_fams = list(train_families)
     if family_weights is not None:
         fam_weights = np.asarray(family_weights, dtype=float).copy()
@@ -224,7 +230,9 @@ def sample_episode(rng, n, fs, *, train_families, curriculum_frac=1.0,
 
     noise = make_noise(family, clean, rng, snr_db=snr, fs=fs)
     noisy = clean + noise
-    s = float(np.std(noisy)) + 1e-9
-    clean = clean / s
-    noisy = noisy / s
-    return clean, noisy, family, snr
+    if normalize:
+        s = float(np.std(noisy)) + 1e-9
+        clean = clean / s
+        noisy = noisy / s
+        return clean, noisy, family, snr, sig_kind, s
+    return clean, noisy, family, snr, sig_kind, 1.0

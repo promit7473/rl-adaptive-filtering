@@ -111,7 +111,7 @@ def _sample_episode(rng: np.random.Generator, cfg: HybridTrainConfig,
                     curriculum_frac: float = 1.0):
     train_fams = list(TRAIN_FAMILIES)
     fam_weights = np.array([CURRICULUM_WEIGHTS.get(f, 1.0) for f in train_fams])
-    clean, noisy, family, snr = sample_episode(
+    clean, noisy, family, snr, _, _ = sample_episode(
         rng, cfg.episode_len, cfg.fs,
         train_families=train_fams,
         curriculum_frac=curriculum_frac,
@@ -240,7 +240,6 @@ def train_hybrid(cfg: HybridTrainConfig, out_dir: str = "results/v3_hybrid",
 
             feat, ema_e2 = features_torch(
                 e, x_buf, last_mu, last_lam, last_e, last2_e, ema_e2,
-                filter_order=cfg.filter_order,
             )
             feat_t = feat.unsqueeze(0)
 

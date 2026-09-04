@@ -160,17 +160,16 @@ class AdaptiveFilterEnvV2(gym.Env):
 
         snrs = (self.fixed_snr_db,) if self.fixed_snr_db is not None else cfg.snr_db_options
 
-        self.clean, self.noisy, family, snr = sample_episode(
+        self.clean, self.noisy, family, snr, sig_kind, self.norm_scale = sample_episode(
             rng, cfg.episode_len, cfg.fs,
             train_families=fams,
             signal_kinds=kinds,
             signal_weights=sw,
             snr_options=snrs,
             family_weights=fw,
+            normalize=cfg.normalize_input,
         )
-        self.norm_scale = 1.0
-        self._task_meta = dict(family=family, snr_db=snr,
-                               signal=self.fixed_signal or "sampled")
+        self._task_meta = dict(family=family, snr_db=snr, signal=sig_kind)
 
     def reset(self, *, seed: Optional[int] = None, options: dict | None = None):
         if seed is not None:
