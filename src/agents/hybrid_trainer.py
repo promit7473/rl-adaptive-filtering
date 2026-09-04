@@ -36,12 +36,14 @@ import torch.nn.functional as F
 from torch.optim import Adam
 from torch.optim.lr_scheduler import CosineAnnealingLR
 
-from ..filters.diff_filter import (DifferentiableNLMS, DiffNLMSConfig,
-                                   decode_action_bptt, mu_base_schedule,
-                                   MU_SCHEDULE_GAIN)
-from ..signals.generators import make_signal
-from ..noise.families import make_noise, TRAIN_FAMILIES, OOD_FAMILIES
+from ..filters.diff_filter import DiffNLMSConfig
+from ..noise.families import TRAIN_FAMILIES, OOD_FAMILIES
 from ..agents.controller import LSTMController, HybridController, TransformerController
+from ..kernel import (
+    ActionBounds, decode_action_torch, features_torch, nlms_update_torch,
+    mu_base_schedule, MU_SCHEDULE_GAIN, sample_episode,
+    SIGNAL_KINDS, SIGNAL_WEIGHTS, CURRICULUM_WEIGHTS, SNR_OPTIONS,
+)
 
 
 @dataclass
@@ -105,56 +107,19 @@ class HybridTrainConfig:
 FAMILY_NAMES = list(TRAIN_FAMILIES) + list(OOD_FAMILIES)
 FAMILY_TO_IDX = {f: i for i, f in enumerate(FAMILY_NAMES)}
 
-CURRICULUM_WEIGHTS = {
-    "gaussian": 1.0, "colored": 1.5, "impulsive": 2.0,
-    "time_varying": 2.0, "regime_switch": 3.0,
-}
-
-SIGNAL_KINDS = ("multitone", "am", "sine", "ecg_like", "random_pulses", "square_burst")
-SIGNAL_WEIGHTS = np.array([1.0, 1.0, 1.0, 2.0, 2.0, 2.0])
-SIGNAL_WEIGHTS /= SIGNAL_WEIGHTS.sum()
-
-
 def _sample_episode(rng: np.random.Generator, cfg: HybridTrainConfig,
                     curriculum_frac: float = 1.0):
     train_fams = list(TRAIN_FAMILIES)
     fam_weights = np.array([CURRICULUM_WEIGHTS.get(f, 1.0) for f in train_fams])
-    if curriculum_frac < 1.0:
-        # ramp the hardest (non-stationary) families in gradually
-        hard = {"regime_switch", "time_varying"}
-        ramp = 0.25 + 0.75 * curriculum_frac
-        for i, f in enumerate(train_fams):
-            if f in hard:
-                fam_weights[i] *= ramp
-    fam_weights /= fam_weights.sum()
-
-    family = str(rng.choice(train_fams, p=fam_weights))
-    sig_kind = str(rng.choice(SIGNAL_KINDS, p=SIGNAL_WEIGHTS))
-    snr = float(rng.choice([0.0, 5.0, 10.0, 15.0, 20.0]))
-
-    if sig_kind == "multitone":
-        base = rng.uniform(150.0, 400.0)
-        clean = make_signal("multitone", n=cfg.episode_len, fs=cfg.fs, rng=rng,
-                            freqs=[base, base * rng.uniform(1.5, 2.5),
-                                   base * rng.uniform(2.5, 4.0)],
-                            amps=[1.0, rng.uniform(0.4, 0.8), rng.uniform(0.2, 0.6)])
-    elif sig_kind == "am":
-        clean = make_signal("am", n=cfg.episode_len, fs=cfg.fs, rng=rng,
-                            fc=rng.uniform(800.0, 1500.0),
-                            fm=rng.uniform(40.0, 120.0),
-                            mod_index=rng.uniform(0.3, 0.7))
-    elif sig_kind in ("ecg_like", "random_pulses", "square_burst"):
-        clean = make_signal(sig_kind, n=cfg.episode_len, fs=cfg.fs, rng=rng)
-    else:
-        clean = make_signal("sine", n=cfg.episode_len, fs=cfg.fs, rng=rng,
-                            freq=rng.uniform(150.0, 600.0))
-
-    noise = make_noise(family, clean, rng, snr_db=snr, fs=cfg.fs)
-    noisy = clean + noise
-    s = float(np.std(noisy)) + 1e-9
-    clean = clean / s
-    noisy = noisy / s
-
+    clean, noisy, family, snr = sample_episode(
+        rng, cfg.episode_len, cfg.fs,
+        train_families=train_fams,
+        curriculum_frac=curriculum_frac,
+        signal_kinds=SIGNAL_KINDS,
+        signal_weights=SIGNAL_WEIGHTS,
+        snr_options=SNR_OPTIONS,
+        family_weights=fam_weights,
+    )
     return clean, noisy, FAMILY_TO_IDX[family], snr
 
 
@@ -168,6 +133,10 @@ def train_hybrid(cfg: HybridTrainConfig, out_dir: str = "results/v3_hybrid",
 
     diff_cfg = DiffNLMSConfig(
         order=cfg.filter_order, mu_min=cfg.mu_min, mu_max=cfg.mu_max,
+        lam_min=cfg.lam_min, lam_max=cfg.lam_max,
+    )
+    bounds = ActionBounds(
+        mu_min=cfg.mu_min, mu_max=cfg.mu_max,
         lam_min=cfg.lam_min, lam_max=cfg.lam_max,
     )
 
@@ -259,6 +228,7 @@ def train_hybrid(cfg: HybridTrainConfig, out_dir: str = "results/v3_hybrid",
         chunk_start = 0
         prev_pred_err = None  # prediction made at t-1 of e_t (one-step-ahead)
         prev_pred_sig = None  # prediction made at t-1 of d_t
+        prev_e2 = None
 
         for t in range(T):
             x_buf = torch.roll(x_buf, 1, dims=1)
@@ -267,50 +237,28 @@ def train_hybrid(cfg: HybridTrainConfig, out_dir: str = "results/v3_hybrid",
             y = (w * x_buf).sum(dim=1)
             e = d - y
             e_sq = e * e
-            input_norm = (x_buf * x_buf).sum(dim=1) + 1e-6
 
-            de = e - last_e
-            dde = de - (last_e - last2_e)
-            ema_e2 = 0.99 * ema_e2 + 0.01 * e_sq
-            autocorr = (e * last_e) / (ema_e2 + 1e-8)
-            autocorr = torch.clamp(autocorr, -1.0, 1.0)
-            grad_norm = torch.abs(last_mu * e) / torch.sqrt(input_norm + 1e-8)
-            sign_de = torch.sign(de)
-
-            feat_t = torch.stack([
-                torch.tanh(e * 5.0),
-                torch.tanh(e_sq * 2.0),
-                torch.tanh(de * 5.0),
-                torch.tanh(dde * 5.0),
-                torch.tanh(torch.log1p(input_norm / cfg.filter_order + 1e-8)),
-                torch.tanh(torch.log1p(e_sq + 1e-8)),
-                torch.tanh(autocorr),
-                torch.tanh((last_mu - 0.5) * 4.0),
-                torch.tanh((last_lam - 0.85) * 10.0),
-                torch.tanh(grad_norm * 2.0),
-                torch.tanh(sign_de.float()),
-            ], dim=-1).unsqueeze(0)
+            feat, ema_e2 = features_torch(
+                e, x_buf, last_mu, last_lam, last_e, last2_e, ema_e2,
+                filter_order=cfg.filter_order,
+            )
+            feat_t = feat.unsqueeze(0)
 
             action, state, value, pred_err, pred_sig, pred_task, pred_snr = controller(feat_t, state)
 
-            mu, lam = decode_action_bptt(action[0], diff_cfg)
+            mu, lam = decode_action_torch(action[0], bounds)
             if cfg.use_mu_schedule:
                 mu = mu_base_schedule(t) + mu * MU_SCHEDULE_GAIN
                 mu = torch.clamp(mu, cfg.mu_min, cfg.mu_max)
-            w = lam.unsqueeze(1) * w + (mu / input_norm).unsqueeze(1) * e.unsqueeze(1) * x_buf
-
-            w_norm = torch.norm(w, dim=1)
-            clip_mask = w_norm > 100.0
-            if clip_mask.any():
-                scale = torch.where(clip_mask, 100.0 / (w_norm + 1e-8), torch.ones_like(w_norm))
-                w = w * scale.unsqueeze(1)
+            w = nlms_update_torch(w, x_buf, e, mu, lam)
 
             bptt_loss = bptt_loss + cfg.bptt_loss_weight * e_sq.mean()
-            if cfg.convergence_bonus > 0 and t < T // 4:
-                bptt_loss = bptt_loss + cfg.convergence_bonus * e_sq.mean()
-            if cfg.robust_alpha > 0 and len(all_errors_detached) >= 64:
-                window = torch.stack(all_errors_detached[-64:])
-                bptt_loss = bptt_loss + cfg.robust_alpha * window.abs().median()
+            if cfg.robust_alpha > 0:
+                bptt_loss = bptt_loss + cfg.robust_alpha * e.abs().mean()
+            if cfg.convergence_bonus > 0 and prev_e2 is not None:
+                improvement = torch.log1p(prev_e2) - torch.log1p(e_sq.mean())
+                bptt_loss = bptt_loss - cfg.convergence_bonus * improvement
+            prev_e2 = e_sq.mean().detach()
             # One-step-ahead auxiliary losses: the prediction emitted at t-1
             # is scored against the realised e_t / d_t (per batch element).
             if cfg.aux_error_weight > 0 and prev_pred_err is not None:

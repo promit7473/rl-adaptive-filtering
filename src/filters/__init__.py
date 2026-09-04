@@ -8,14 +8,14 @@ from .notch import IIRNotch
 from .pid import PIDLeakyNLMS
 from .fixed_leakage_nlms import FixedLeakageNLMS
 from .meta_af import MetaAFFilter
-from .diff_filter import DifferentiableNLMS, DiffNLMSConfig
+from .diff_filter import DiffNLMSConfig
 
 __all__ = [
     "AdaptiveFilter", "windowize",
     "LMS", "NLMS", "VSSLMS", "AboulnasrMayyasVSS", "MathewsXieVSS",
     "LMP", "HeuristicMuScheduler", "KalmanMuScheduler",
     "RLS", "IIRNotch", "PIDLeakyNLMS", "FixedLeakageNLMS", "MetaAFFilter",
-    "DifferentiableNLMS", "DiffNLMSConfig",
+    "DiffNLMSConfig",
     "make_filter",
 ]
 
