@@ -173,6 +173,23 @@ def train_hybrid(cfg: HybridTrainConfig, out_dir: str = "results/v3_hybrid",
         ckpt = torch.load(resume_from, map_location=device, weights_only=False)
         controller.load_state_dict(ckpt["state_dict"])
         start_iter = ckpt.get("iter", 0) + 1
+        # Old checkpoints may only have weights; skip missing optimizer/RNGs.
+        if ckpt.get("optimizer") is not None:
+            optimizer.load_state_dict(ckpt["optimizer"])
+        if scheduler is not None and ckpt.get("scheduler") is not None:
+            scheduler.load_state_dict(ckpt["scheduler"])
+        if ckpt.get("numpy_rng") is not None:
+            rng.bit_generator.state = ckpt["numpy_rng"]
+        if ckpt.get("torch_rng") is not None:
+            torch_rng = ckpt["torch_rng"]
+            if torch.is_tensor(torch_rng):
+                torch_rng = torch_rng.cpu()
+            torch.set_rng_state(torch_rng)
+        if ckpt.get("cuda_rng") is not None and torch.cuda.is_available():
+            cuda_rng = ckpt["cuda_rng"]
+            if isinstance(cuda_rng, (list, tuple)):
+                cuda_rng = [t.cpu() if torch.is_tensor(t) else t for t in cuda_rng]
+            torch.cuda.set_rng_state_all(cuda_rng)
         rec_path = os.path.join(out_dir, "train_records.csv")
         if os.path.isfile(rec_path):
             with open(rec_path, "r") as f:
@@ -181,9 +198,6 @@ def train_hybrid(cfg: HybridTrainConfig, out_dir: str = "results/v3_hybrid",
                 for row in reader:
                     records.append({k: (float(v) if k != "iter" else int(v)) for k, v in row.items()})
         print(f"[train] Resumed from {resume_from} at iter {start_iter}")
-        for _ in range(start_iter):
-            if scheduler is not None:
-                scheduler.step()
 
     print(f"[train] Training hybrid BPTT+RL on {device}")
     print(f"[train] Controller: {cfg.controller_type}, params: "
@@ -336,15 +350,14 @@ def train_hybrid(cfg: HybridTrainConfig, out_dir: str = "results/v3_hybrid",
 
         if it % cfg.save_every == 0 and it > 0:
             path = os.path.join(out_dir, f"controller_it{it}.pt")
-            torch.save({"state_dict": controller.state_dict(),
-                        "config": cfg, "iter": it}, path)
+            torch.save(_ckpt_dict(controller, cfg, it, optimizer, scheduler, rng), path)
 
         if it % cfg.eval_every == 0 and it > 0:
             _quick_eval(controller, diff_cfg, cfg, device, rng)
 
     final_path = os.path.join(out_dir, "controller_final.pt")
-    torch.save({"state_dict": controller.state_dict(),
-                "config": cfg, "iter": cfg.n_iters}, final_path)
+    torch.save(_ckpt_dict(controller, cfg, cfg.n_iters, optimizer, scheduler, rng),
+               final_path)
 
     rec_path = os.path.join(out_dir, "train_records.csv")
     if records:
@@ -355,6 +368,34 @@ def train_hybrid(cfg: HybridTrainConfig, out_dir: str = "results/v3_hybrid",
 
     print(f"[train] Done. Final model: {final_path}")
     return controller, records, final_path
+
+
+def _ckpt_dict(controller, cfg, it, optimizer, scheduler, rng):
+    return {
+        "state_dict": controller.state_dict(),
+        "config": cfg,
+        "iter": it,
+        "optimizer": optimizer.state_dict(),
+        "scheduler": None if scheduler is None else scheduler.state_dict(),
+        "numpy_rng": rng.bit_generator.state,
+        "torch_rng": torch.get_rng_state(),
+        "cuda_rng": (
+            torch.cuda.get_rng_state_all() if torch.cuda.is_available() else None
+        ),
+    }
+
+
+def _clone_lstm_state(state, device=None):
+    """Clone/detach LSTM (h, c). None stays None (episode start / Transformer)."""
+    if state is None:
+        return None
+    h, c = state
+    h = h.detach().clone()
+    c = c.detach().clone()
+    if device is not None:
+        h = h.to(device)
+        c = c.to(device)
+    return (h, c)
 
 
 def _rl_phase_proper(controller, diff_cfg, cfg, rng, device, optimizer):
@@ -392,6 +433,7 @@ def _rl_phase_proper(controller, diff_cfg, cfg, rng, device, optimizer):
     all_values = []
     all_logprobs = []
     all_dones = []
+    all_states = []  # LSTM state used to produce each action (pre-forward)
 
     for env_i in range(cfg.rl_n_envs):
         env = AdaptiveFilterEnvV2(env_cfg, seed=int(rng.integers(0, 2**31)))
@@ -406,10 +448,14 @@ def _rl_phase_proper(controller, diff_cfg, cfg, rng, device, optimizer):
             ep_values = []
             ep_logprobs = []
             ep_dones = []
+            ep_states = []
 
             for step_i in range(env_cfg.episode_len):
                 obs_2d = obs.reshape(env_cfg.state_window, -1)[-1]
                 obs_t = torch.tensor(obs_2d, dtype=torch.float32, device=device).unsqueeze(0).unsqueeze(0)
+                # State that produces this action (before forward). CPU clone so
+                # the buffer does not hold the graph or GPU tensors.
+                stored_state = _clone_lstm_state(lstm_state, device="cpu")
                 with torch.no_grad():
                     action, lstm_state, value, _, _, _, _ = controller(obs_t, lstm_state)
                 mean = action[0, 0]
@@ -430,6 +476,7 @@ def _rl_phase_proper(controller, diff_cfg, cfg, rng, device, optimizer):
                 ep_values.append(float(value[0, 0, 0].cpu()))
                 ep_logprobs.append(float(logprob.detach().cpu()))
                 ep_dones.append(float(term or trunc))
+                ep_states.append(stored_state)
 
                 if term or trunc:
                     break
@@ -440,6 +487,7 @@ def _rl_phase_proper(controller, diff_cfg, cfg, rng, device, optimizer):
             all_values.extend(ep_values)
             all_logprobs.extend(ep_logprobs)
             all_dones.extend(ep_dones)
+            all_states.extend(ep_states)
 
             # *** Meta-episode: DO NOT reset LSTM state ***
             # This is RL² — the LSTM carries task information across episodes.
@@ -503,7 +551,8 @@ def _rl_phase_proper(controller, diff_cfg, cfg, rng, device, optimizer):
             chunk_ret = returns[c_start:c_end]
             chunk_old_lp = logprobs_t[c_start:c_end]
 
-            new_action, _, new_value, _, _, _, _ = controller(feat_seq)
+            init_state = _clone_lstm_state(all_states[c_start], device=device)
+            new_action, _, new_value, _, _, _, _ = controller(feat_seq, init_state)
             new_mean = new_action[:, 0]  # (T, act_dim)
             new_val = new_value[:, 0, 0]  # (T,)
 
