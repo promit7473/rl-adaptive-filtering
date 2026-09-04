@@ -1,9 +1,9 @@
 """Noise families.
 
 Train (in-distribution): gaussian, colored (pink/brown), impulsive (Bernoulli-Gaussian),
-time-varying SNR.
+time-varying SNR, regime-switch.
 
-Held-out (OOD test): alpha-stable, burst, chirp interferer, regime-switch.
+Held-out (OOD test): alpha-stable, burst, chirp interferer.
 
 Each function returns a noise sequence with approximately the requested SNR (dB)
 relative to the supplied clean signal. Some families (alpha-stable, burst) use
@@ -110,11 +110,18 @@ def burst(clean: np.ndarray, snr_db: float, rng: np.random.Generator,
 
 def chirp_interferer(clean: np.ndarray, snr_db: float, rng: np.random.Generator,
                      fs: float = 8000.0,
-                     f0_range=(100.0, 500.0), f1_range=(800.0, 2000.0)) -> np.ndarray:
-    """Linear chirp added to mild Gaussian background."""
+                     f0_range=(0.05, 0.20), f1_range=(0.30, 0.45)) -> np.ndarray:
+    """Linear chirp added to mild Gaussian background.
+
+    f0_range / f1_range are fractions of Nyquist (fs/2); both ends stay
+    strictly below Nyquist with the defaults.
+    """
     n = clean.shape[0]
-    f0 = rng.uniform(*f0_range)
-    f1 = rng.uniform(*f1_range)
+    nyquist = 0.5 * fs
+    f0 = float(rng.uniform(*f0_range) * nyquist)
+    f1 = float(rng.uniform(*f1_range) * nyquist)
+    if f1 <= f0:
+        f0, f1 = f1, f0
     t = np.arange(n) / fs
     T = n / fs
     k = (f1 - f0) / T

@@ -2,7 +2,7 @@
 import numpy as np
 from src.signals.generators import make_signal
 from src.noise.families import make_noise
-from src.filters import make_filter, windowize
+from src.filters import make_filter, windowize, AboulnasrMayyasVSS
 
 
 def build_problem(n=4000, fs=8000.0, snr_db=10.0, seed=0):
@@ -54,6 +54,36 @@ def test_all_filters_converge():
     print(f"{'lmp':20s}  steady-state MSE = {ss_lmp:.5f}  (on impulsive noise)")
 
 
+def test_aboulnasr_mayyas_signed_error_autocorr():
+    order = 4
+    beta = 0.99
+    alpha = 0.97
+    gamma_p = 0.09
+    mu_max = 0.1
+    mu_min = 1e-4
+    filt = AboulnasrMayyasVSS(
+        order=order, mu_max=mu_max, mu_min=mu_min,
+        alpha=alpha, gamma_p=gamma_p, beta=beta,
+    )
+    u = np.ones(order) * 1e-6
+
+    _, e1 = filt.step(u, 1.0)
+    assert e1 > 0
+    p_after_1 = filt.p
+    prev_e = filt.prev_e
+    mu_after_1 = filt.mu
+
+    _, e2 = filt.step(u, -1.0)
+    assert e2 < 0
+    assert filt.p < 0
+
+    p_ref = beta * p_after_1 + (1.0 - beta) * e2 * prev_e
+    mu_ref = float(np.clip(alpha * mu_after_1 + gamma_p * p_ref ** 2, mu_min, mu_max))
+    assert np.isclose(filt.p, p_ref)
+    assert np.isclose(filt.mu, mu_ref)
+
+
 if __name__ == "__main__":
     test_all_filters_converge()
+    test_aboulnasr_mayyas_signed_error_autocorr()
     print("All filter tests passed.")

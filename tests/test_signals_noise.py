@@ -26,7 +26,23 @@ def test_noise_families_snr():
             assert abs(snr - 10.0) < 2.0, (fam, snr)
 
 
+def test_chirp_interferer_below_nyquist_at_fs360():
+    rng = np.random.default_rng(0)
+    fs = 360.0
+    n = 4096
+    clean = make_signal("multitone", n=n, fs=fs, rng=rng)
+    noise = make_noise("chirp_interferer", clean, rng, snr_db=10.0, fs=fs)
+    spec = np.abs(np.fft.rfft(noise))
+    freqs = np.fft.rfftfreq(n, d=1.0 / fs)
+    peak_hz = float(freqs[int(np.argmax(spec))])
+    assert peak_hz < fs / 2.0
+    nyquist = fs / 2.0
+    band = (freqs >= 0.05 * nyquist) & (freqs <= 0.45 * nyquist)
+    assert spec[band].sum() > spec[~band].sum()
+
+
 if __name__ == "__main__":
     test_signals_shapes()
     test_noise_families_snr()
+    test_chirp_interferer_below_nyquist_at_fs360()
     print("OK")

@@ -56,32 +56,30 @@ class VSSLMS(AdaptiveFilter):
 @dataclass
 class AboulnasrMayyasVSS(AdaptiveFilter):
     """Robust VSS-LMS (Aboulnasr & Mayyas, 1997).
-    Uses squared error autocorrelation to distinguish noise from signal."""
+    Uses signed error autocorrelation to distinguish noise from signal."""
     mu_max: float = 0.1
     mu_min: float = 1e-4
     alpha: float = 0.97
     gamma_p: float = 0.09
-    gamma_n: float = 0.1
+    beta: float = 0.99
     mu: float = field(init=False)
-    prev_e_sq: float = field(init=False, default=0.0)
+    prev_e: float = field(init=False, default=0.0)
+    p: float = field(init=False, default=0.0)
 
     def reset(self) -> None:
         super().reset()
         self.mu = self.mu_max
-        self.prev_e_sq = 0.0
+        self.prev_e = 0.0
+        self.p = 0.0
 
     def step(self, u: np.ndarray, d: float) -> tuple[float, float]:
         y = float(self.w @ u)
         e = d - y
-        e_sq = e * e
-        p = e_sq * self.prev_e_sq
-        if p >= 0:
-            new_mu = self.alpha * self.mu + self.gamma_p * p
-        else:
-            new_mu = self.alpha * self.mu - self.gamma_n * abs(p)
+        self.p = self.beta * self.p + (1.0 - self.beta) * e * self.prev_e
+        new_mu = self.alpha * self.mu + self.gamma_p * (self.p ** 2)
         self.mu = float(np.clip(new_mu, self.mu_min, self.mu_max))
         self.w = self.w + self.mu * e * u
-        self.prev_e_sq = e_sq
+        self.prev_e = e
         return y, e
 
 

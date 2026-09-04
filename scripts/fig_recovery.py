@@ -12,7 +12,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.append(ROOT)
 
 from src.agents.controller import HybridController
-from src.filters import NLMS, RLS, VSSLMS
+from src.filters import NLMS, RLS, VSSLMS, windowize
 from src.envs.adaptive_filter_env_v2 import AdaptiveFilterEnvV2, EnvConfigV2, _decode_action_v2
 from src.signals.generators import make_signal
 from scripts.paper_plots import apply_style, _despine, OURS, COL
@@ -51,38 +51,19 @@ def run_recovery_simulation():
     
     noisy = clean + base_noise + burst_noise
     
+    U = windowize(noisy, order)
+
     # 3. Simulate Classical NLMS
     nlms = NLMS(order=order, mu=0.5)
-    e_nlms = np.zeros(N)
-    for t in range(N):
-        if t < order:
-            e_nlms[t] = clean[t] - noisy[t]
-        else:
-            u_t = noisy[t-order:t][::-1]
-            _, e = nlms.step(u_t, clean[t])
-            e_nlms[t] = e
-            
+    _, e_nlms = nlms.run(U, clean)
+
     # 4. Simulate Classical RLS
     rls = RLS(order=order, forgetting=0.995)
-    e_rls = np.zeros(N)
-    for t in range(N):
-        if t < order:
-            e_rls[t] = clean[t] - noisy[t]
-        else:
-            u_t = noisy[t-order:t][::-1]
-            _, e = rls.step(u_t, clean[t])
-            e_rls[t] = e
+    _, e_rls = rls.run(U, clean)
 
     # 5. Simulate VSS-Kwong
     vss = VSSLMS(order=order, mu_max=0.05, alpha=0.97, gamma=1e-3)
-    e_vss = np.zeros(N)
-    for t in range(N):
-        if t < order:
-            e_vss[t] = clean[t] - noisy[t]
-        else:
-            u_t = noisy[t-order:t][::-1]
-            _, e = vss.step(u_t, clean[t])
-            e_vss[t] = e
+    _, e_vss = vss.run(U, clean)
 
     # 6. Simulate Hybrid BPTT+RL Controller (Ours)
     hybrid_path = os.path.join(ROOT, "results", "runs", "hybrid_seed42", "controller_final.pt")
